@@ -373,6 +373,78 @@ function parseVerge(oracle){
   return {base:uncond[1].toUpperCase(), cond:cond[1].toUpperCase(), enablers:[...new Set(types)]};
 }
 
+/* Name to send to Scryfall's /cards/collection endpoint.
+
+   Its `name` identifier matches the FRONT FACE only. Moxfield and Archidekt
+   export split cards and double-faced cards under the full "A // B" name, and
+   sending that back returns not_found — which is worse than it sounds, because
+   an unresolved card silently becomes mana value 0 with no coloured pips. A
+   playset of Fire // Ice would drag the average mana value down and understate
+   both the land count and the colour requirements.
+
+   Query the front face; the response still carries the full name, and the DB is
+   keyed under the full name AND each face, so lookups hit either way. */
+function scryfallName(name){
+  const s=String(name||'').trim();
+  const front=s.split('//')[0].trim();
+  return front || s;
+}
+
+/* Is this card a land, and does it have a land on its back face?
+
+   Classify off the FRONT face, never the combined type line. Scryfall reports
+   Bala Ged Recovery // Bala Ged Sanctuary as "Sorcery // Land", so a /Land/ test
+   against the whole string calls it a land. That inflated the land count, and
+   because mdfcLand was computed as (!isLand && backLand) it also meant the MDFC
+   term in Karsten's regression never fired for the very cards it exists for.
+   Pathway-style "Land // Land" cards are still lands, which is correct. */
+function landFaces(cd){
+  const faces=cd.card_faces||null;
+  const frontType=(faces && faces[0] && faces[0].type_line) || cd.type_line || '';
+  return {
+    isLand:   /\bLand\b/.test(frontType),
+    backLand: !!(faces && /\bLand\b/.test((faces[1]||{}).type_line||''))
+  };
+}
+
+/* Does this land ALWAYS enter tapped?
+
+   A bare /enters tapped/ test is too greedy, because it also matches the two
+   families of land that give you a live way out:
+
+     shocklands  "As this land enters, you may pay 2 life.
+                  If you don't, it enters tapped."
+     conditional "This land enters tapped unless you control a Mountain."
+                 (checklands, fastlands, Mistrise Village, the surveil-land
+                  cycle's cousins)
+
+   Shocklands are treated as untapped: the choice is always available and costs
+   only life, so a deck that wants the untapped mode gets it every time.
+
+   The "unless" family stays TAPPED on purpose. The condition may or may not be
+   met, and this flag feeds the untapped-source display, where the whole point is
+   not to overstate how much mana you can actually deploy on curve. Guessing
+   optimistically there is the failure mode that loses games. */
+function entersTapped(oracle){
+  const txt=(oracle||'').toLowerCase();
+  if(!/enters (the battlefield )?tapped/.test(txt)) return false;
+  if(/you may pay \d+ life/.test(txt)) return false;
+  return true;
+}
+
+/* Cheap card draw / ramp, for Karsten's −0.28 regression term.
+
+   The term counts cheap SPELLS that draw or ramp, which reduce how many lands
+   you need. A land that fetches another land is not one of those — it is a land,
+   already counted in the land total. Letting Fabled Passage, Evolving Wilds or
+   Terramorphic Expanse match here docks 0.28 off the recommendation apiece and
+   quietly tells you to run fewer lands than the regression actually says. */
+function isRampDraw(oracle, cmc, isLand){
+  if(isLand) return false;
+  if(!(cmc<=2)) return false;
+  return /draw a card|search your library for a( basic)? land/.test((oracle||'').toLowerCase());
+}
+
 /* How many LANDS carry at least one of `types`. Counted per card, not per type —
    a land with both required types (Blood Crypt is Land — Swamp Mountain, Hallowed
    Fountain is Land — Plains Island) is still only one permanent, so summing
@@ -716,7 +788,11 @@ function renderConflicts(A){
   // land count vs recommendation
   const gap=A.landCount-A.recR;
   if(A.landCount===0) out.push(['warn','No lands detected. Run a Scryfall lookup, or tag lands inline with <code>[land:XY]</code>.']);
-  else if(Math.abs(gap)<=1) out.push(['ok',`Land count <b>${A.landCount}</b> matches the ${A.recR} your curve implies.`]);
+  else if(gap===0) out.push(['ok',`Land count <b>${A.landCount}</b> matches the ${A.recR} your curve implies.`]);
+  // Within one land is fine, but say so honestly — claiming 25 "matches" 26 reads
+  // like a pass when it is really a rounding call the deckbuilder should make.
+  else if(Math.abs(gap)===1) out.push(['ok',
+    `Land count <b>${A.landCount}</b> is one ${gap>0?'above':'below'} the ${A.recR} your curve implies — close enough to be a judgement call.`]);
   else out.push([Math.abs(gap)>=3?'bad':'warn',
     `Land count <b>${A.landCount}</b> is ${Math.abs(gap)} ${gap>0?'above':'below'} the <b>${A.recR}</b> your ${A.avgMV.toFixed(2)} average mana value implies.`]);
 
@@ -1084,7 +1160,7 @@ async function lookup(){
     for(let i=0;i<names.length;i+=75){
       // Scryfall asks for 50-100ms between requests. Be a good citizen.
       if(i>0) await new Promise(r=>setTimeout(r,120));
-      const batch=names.slice(i,i+75).map(n=>({name:n}));
+      const batch=names.slice(i,i+75).map(n=>({name:scryfallName(n)}));
       const r=await fetch('https://api.scryfall.com/cards/collection',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({identifiers:batch})
@@ -1093,20 +1169,23 @@ async function lookup(){
       const j=await r.json();
       (j.data||[]).forEach(cd=>{
         const face = cd.card_faces && !cd.mana_cost ? cd.card_faces[0] : cd;
-        const isLand=/Land/.test(cd.type_line||'');
-        const backLand = cd.card_faces && /Land/.test(cd.card_faces[1]?.type_line||'');
+        const {isLand, backLand} = landFaces(cd);
         const txt=((face.oracle_text||'')+' '+(cd.oracle_text||'')).toLowerCase();
         const oracle=cd.oracle_text||face.oracle_text||'';
         const subtypes=((cd.type_line||'').split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
         const pc=parseCost(face.mana_cost||cd.mana_cost||'');
         DB[cd.name.toLowerCase()]={
           land:isLand, produces:(cd.produced_mana||[]).filter(x=>COLORS.includes(x)),
-          tapped:/enters (the battlefield )?tapped/.test(txt),
+          // For an MDFC the land is the BACK face, so read that face's text —
+          // it decides whether this counts as a tapped or untapped MDFC (-0.38 vs -0.74).
+          tapped: isLand ? entersTapped(txt)
+                : backLand ? entersTapped((cd.card_faces[1]||{}).oracle_text||'')
+                : false,
           cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
           mdfcLand: !isLand && backLand,
           typeLine: cd.type_line||face.type_line||'',
           subtypes, verge: isLand ? parseVerge(oracle) : null,
-          rampdraw: (cd.cmc<=2) && (/draw a card|search your library for a( basic)? land/.test(txt))
+          rampdraw: isRampDraw(txt, cd.cmc, isLand)
         };
         // also key the front-face name for MDFCs / split cards
         if(cd.card_faces) cd.card_faces.forEach(f=>{ if(f.name) DB[f.name.toLowerCase()]=DB[cd.name.toLowerCase()]; });

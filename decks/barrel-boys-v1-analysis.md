@@ -139,19 +139,78 @@ tops out at four `{9}` Warlords, 26 is the better number.
 
 ---
 
+## 6. The Iron Man failsafe does not work
+
+The intended line is: Barrel hits Tony Stark → he arrives as The Invincible Iron
+Man → at the beginning of combat, put a drawn Krang from hand onto the
+battlefield. It breaks in two independent places.
+
+**A card put onto the battlefield enters front face up.** Getaway Barrel says
+*put a random creature card onto the battlefield*. It does not cast anything and
+it does not say "transformed", so what arrives is Tony Stark, the 1/3 — never The
+Invincible Iron Man. This is true of every double-faced card put onto the
+battlefield by an effect.
+
+**Reaching Iron Man needs red the deck does not have.** The transform costs
+`{4}{U}{R}`, and it is an *activated ability*, not casting an artifact spell —
+so Castle Doom's coloured mana cannot pay for it. Usable red sources: **one**
+(Sacred Foundry). Karsten wants 9 for a single red pip on turn 6. There is a
+20% chance Sacred Foundry is even in play by then.
+
+So a drawn Krang has no out. It is not a failsafe; it is a dead card 57% of games.
+
+**But Tony Stark is still worth running — for the front face.** `{1}, {T}: look
+at the top four, take an artifact` is a repeatable dig, and the deck is 29
+artifacts in 60:
+
+- P(≥1 artifact in the top four) = **94.0%**
+- P(≥2) = 68.1%
+
+That finds Getaway Barrel, which matters given the ladder is single-threaded
+through one copy. And keeping Tony in raises the Barrel's overall hit rate,
+because he is a creature: cutting both copies drops it from 88.2% to **79.2%**.
+
+The honest summary: Tony Stark earns his slot as a cheap artifact tutor that
+happens to be a legal Barrel target. He does not earn it as a Krang enabler. If
+you want the Krang-from-hand plan to be real, that is a mana-base decision — 8
+or so more red sources — not a card-selection one.
+
 ## Tool bugs found
 
-1. **Lands counted as cheap ramp/draw.** `rampdraw` in the Scryfall section
-   tests `cmc <= 2 && /draw a card|search your library for a( basic)? land/`
-   without excluding lands, so Fabled Passage, Evolving Wilds, Terramorphic
-   Expanse and every similar land depresses the recommendation by 0.28 each.
+All four are fixed as of 2026-08-11; 182 tests green.
 
-2. **Shocklands flagged as entering tapped.** The `/enters (the battlefield )?tapped/`
-   test matches Hallowed Fountain's and Sacred Foundry's *"If you don't, it
-   enters tapped"*. Affects the untapped-sources display only, not the
-   requirements.
+1. **Lands counted as cheap ramp/draw.** `rampdraw` tested
+   `cmc <= 2 && /draw a card|search your library for a( basic)? land/` without
+   excluding lands, so Fabled Passage, Evolving Wilds and Terramorphic Expanse
+   each docked 0.28 off the recommendation. Cost this deck a full land: 25.02
+   (a fake perfect match) versus the correct **25.58 → 26**.
 
-3. **Restricted-use mana is not modelled** (new limitation, not a bug). Castle
-   Doom, Ancient Tomb-style lands and any *"spend this mana only to…"* land are
-   counted as unrestricted sources. Worth a Method-tab note at minimum; the
-   honest fix is a per-source restriction tag.
+2. **Shocklands flagged as entering tapped.** `/enters (the battlefield )?tapped/`
+   matched Hallowed Fountain's and Sacred Foundry's *"If you don't, it enters
+   tapped"*. Untapped W went 12 → 16, U went 7 → 10. The conditional
+   "enters tapped unless…" family deliberately still counts as tapped.
+
+3. **Split and double-faced cards failed lookup entirely.** Scryfall's
+   `/cards/collection` `name` identifier matches the front face only, so the
+   full `A // B` name that Moxfield and Archidekt export returned `not_found` —
+   and an unresolved card silently becomes mana value 0 with no pips. Four
+   Fire // Ice would have dragged the average mana value down and understated
+   both land count and colour requirements.
+
+4. **MDFC lands were counted as lands.** Scryfall types Bala Ged Recovery //
+   Bala Ged Sanctuary as `Sorcery // Land`, and the old `/Land/` test on the
+   combined string called it a land. Worse, `mdfcLand` was `(!isLand && backLand)`,
+   so the MDFC term in Karsten's regression never fired for the exact cards it
+   exists to handle. Classification now reads the front face.
+
+5. **Restricted-use mana is not modelled** (open limitation, not fixed). Castle
+   Doom, Cavern of Souls and Spire of Industry are all counted as unrestricted
+   sources of every colour they list. The honest fix is a per-source restriction
+   tag; for now it is a Method-tab caveat.
+
+6. **Fetchlands contribute zero coloured sources** (open limitation). Scryfall
+   gives Misty Rainforest and Fabled Passage no `produced_mana`, so they count
+   as lands that produce nothing. Note this contradicts the Method tab, which
+   still claims fetchlands count for every colour they can retrieve — the
+   documented limitation is backwards, and the real behaviour is pessimistic,
+   not generous. Matters most for Modern and Legacy decks running 8–12 fetches.

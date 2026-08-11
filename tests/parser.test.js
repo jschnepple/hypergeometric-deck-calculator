@@ -57,4 +57,70 @@ group('quantities');
 eq('double-digit quantities', one('12 Forest').qty, 12);
 eq('single copy', one('1 Sol Ring').qty, 1);
 
+/* Both groups below are regressions from the first real decklist run through the
+   tool (Barrel Boys, 2026-08-11). Each bug shifted a headline number: the ramp
+   one moved the land recommendation by a whole land. */
+
+group('entersTapped: only unconditional tapped lands count');
+const TAPPED_CASES = [
+  ['Meticulous Archive (surveil land)', 'This land enters tapped.\nWhen this land enters, surveil 1.', true],
+  ['plain tapped land',                 'This land enters the battlefield tapped.',                     true],
+  ['Hallowed Fountain (shock)',         "As this land enters, you may pay 2 life. If you don't, it enters tapped.", false],
+  ['Sacred Foundry (shock)',            "As this land enters, you may pay 2 life. If you don't, it enters tapped.", false],
+  ['Mistrise Village (conditional)',    'This land enters tapped unless you control a Mountain or a Forest.', true],
+  ['fastland (conditional)',            'This land enters tapped unless you control two or fewer other lands.', true],
+  ['Plains',                            '',                                                             false],
+];
+for (const [label, oracle, want] of TAPPED_CASES) {
+  chk(`${label} -> ${want ? 'tapped' : 'untapped'}`, entersTapped(oracle) === want,
+      `got ${entersTapped(oracle)}`);
+}
+chk('case is normalised', entersTapped('THIS LAND ENTERS TAPPED.') === true);
+
+group('landFaces: classify off the front face');
+const LF = [
+  ['plain land',        {type_line:'Land'},                                                        true,  false],
+  ['basic land',        {type_line:'Basic Land — Mountain'},                                       true,  false],
+  ['shockland',         {type_line:'Land — Mountain Plains'},                                      true,  false],
+  ['MDFC spell/land (Bala Ged Recovery)',
+    {type_line:'Sorcery // Land', card_faces:[{type_line:'Sorcery'},{type_line:'Land'}]},          false, true],
+  ['MDFC spell/land (Agadeem\'s Awakening)',
+    {type_line:'Sorcery // Land', card_faces:[{type_line:'Sorcery'},{type_line:'Land'}]},          false, true],
+  ['Pathway (land // land)',
+    {type_line:'Land // Land', card_faces:[{type_line:'Land'},{type_line:'Land'}]},                true,  true],
+  ['transform DFC creature',
+    {type_line:'Creature — Human // Creature — Werewolf', card_faces:[{type_line:'Creature — Human'},{type_line:'Creature — Werewolf'}]}, false, false],
+  ['plain spell',       {type_line:'Instant'},                                                     false, false],
+  ['Landwalk-ish name is not a land', {type_line:'Enchantment — Aura'},                            false, false],
+];
+for (const [label, cd, wantLand, wantBack] of LF) {
+  const r = landFaces(cd);
+  chk(`${label}: land=${wantLand} backLand=${wantBack}`,
+      r.isLand === wantLand && r.backLand === wantBack,
+      `got land=${r.isLand} backLand=${r.backLand}`);
+}
+
+group('scryfallName: query the front face of split / double-faced cards');
+eq('split card',   scryfallName('Fire // Ice'), 'Fire');
+eq('modal DFC',    scryfallName('Bala Ged Recovery // Bala Ged Sanctuary'), 'Bala Ged Recovery');
+eq('transform DFC',scryfallName('Fable of the Mirror-Breaker // Reflection of Kiki-Jiki'), 'Fable of the Mirror-Breaker');
+eq('single-faced card is untouched', scryfallName('Lightning Bolt'), 'Lightning Bolt');
+eq('name with no spaces around the slashes', scryfallName('Fire//Ice'), 'Fire');
+eq('whitespace is trimmed', scryfallName('  Mountain  '), 'Mountain');
+eq('empty input does not throw', scryfallName(''), '');
+
+group('isRampDraw: lands are never cheap ramp/draw');
+chk('Fabled Passage is not ramp/draw',
+    isRampDraw('{T}, Sacrifice this land: Search your library for a basic land card…', 0, true) === false);
+chk('Evolving Wilds is not ramp/draw',
+    isRampDraw('{T}, Sacrifice this land: Search your library for a basic land card.', 0, true) === false);
+chk('Cryogen Relic is ramp/draw',
+    isRampDraw('When this artifact enters or leaves the battlefield, draw a card.', 2, false) === true);
+chk('Rampant Growth is ramp/draw',
+    isRampDraw('Search your library for a basic land card…', 2, false) === true);
+chk('expensive draw spell does not count',
+    isRampDraw('Draw a card.', 5, false) === false);
+chk('a cheap spell that does neither does not count',
+    isRampDraw('Deal 3 damage to any target.', 1, false) === false);
+
 process.exit(report());
