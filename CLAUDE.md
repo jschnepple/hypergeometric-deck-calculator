@@ -72,7 +72,12 @@ Run the suite after any edit to `index.html`.
 
 ## Known limitations (documented in the Method tab)
 
-- Fetchlands count as sources for every colour they can retrieve — slightly generous.
+- Fetchlands are resolved against the deck's own land base — a fetch counts for a
+  colour only if the deck runs a retrievable land producing it. Scryfall gives
+  fetches no `produced_mana` at all, so without this they count as nothing.
+- Restricted-use lands ("spend this mana only to cast an artifact spell") count
+  per-spell, and do not count at all when the restriction can't be checked
+  against a type line.
 - Mana dorks and rocks are not auto-counted as colour sources.
 - The Verge discount uses cards *seen* as a proxy for lands *in play* — mildly optimistic.
 - Tainted lands and Nimbus Maze use the Verge mechanic but a different text shape;

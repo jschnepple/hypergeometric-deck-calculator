@@ -445,6 +445,77 @@ function isRampDraw(oracle, cmc, isLand){
   return /draw a card|search your library for a( basic)? land/.test((oracle||'').toLowerCase());
 }
 
+/* Fetchlands.
+
+   Scryfall reports NO produced_mana for a fetchland — Misty Rainforest and
+   Fabled Passage come back with nothing — so left alone they count as lands
+   that make no coloured mana at all. For a Modern or Legacy deck running eight
+   to twelve fetches that is catastrophically pessimistic, and it is also the
+   opposite of what this tool's Method tab used to claim.
+
+   The honest model is that a fetch produces whatever the lands it can actually
+   retrieve FROM THIS DECK produce. Misty Rainforest in a deck with no Islands is
+   not a blue source. That is resolved in resolveFetch below, against the real
+   land list, rather than assumed.
+
+   Matches the whole family: "a basic land card" (Evolving Wilds, Fabled Passage,
+   Prismatic Vista), "a Forest or Island card" (the enemy/allied fetch cycles),
+   and "a basic Plains card" (Flooded Strand's older wording relatives). */
+function parseFetch(oracle){
+  const m=(oracle||'').match(/search your library for an? ([^,.]+?) card/i);
+  if(!m) return null;
+  const phrase=m[1].toLowerCase();
+  const named=BASICS.filter(t=>phrase.includes(t.toLowerCase()));
+  const anyBasic=/\bbasic land\b/.test(phrase);
+  // "an artifact card", "a creature card" and friends are not land fetches.
+  if(!anyBasic && !named.length) return null;
+  return {
+    types: anyBasic ? BASICS.slice() : named,
+    basicOnly: /\bbasic\b/.test(phrase),
+    tapped: /onto the battlefield tapped/i.test(oracle||'')
+  };
+}
+
+/* Which colours a fetch can actually produce, given the deck's real land base.
+
+   A fetch never fetches another fetch (they carry no basic land types anyway),
+   and `basicOnly` fetches are held to genuinely Basic cards, so Evolving Wilds
+   cannot claim a shockland's colours. */
+function resolveFetch(fetch, lands){
+  const cols=new Set();
+  lands.forEach(c=>{
+    if(c.fetch) return;
+    if(fetch.basicOnly && !/\bBasic\b/i.test(c.typeLine||'')) return;
+    if(!(c.subtypes||[]).some(t=>fetch.types.includes(t))) return;
+    (c.produces||[]).forEach(col=>{ if(COLORS.includes(col)) cols.add(col); });
+  });
+  return [...cols];
+}
+
+/* Restricted-use mana.
+
+   Castle Doom, Cavern of Souls and Spire of Industry all add "one mana of any
+   color" and then take most of it back: "Spend this mana only to cast an
+   artifact spell", "…a creature spell of the chosen type", and so on. Scryfall's
+   produced_mana lists every colour with no hint of the restriction, so counting
+   them naively hands you a five-colour manabase you do not have.
+
+   The restriction is only meaningful against a specific spell, so this returns
+   the required type and `restrictionAllows` checks it per requirement. When we
+   cannot tell — a summary count with no spell in hand, or an unrecognised
+   restriction like "multicolored" that no type line reports — the source does
+   NOT count. Understating a restricted land costs you a land you did not need;
+   overstating it costs you the game. */
+function parseRestriction(oracle){
+  const m=(oracle||'').match(/spend this mana only to cast (?:a|an) ([a-z]+)/i);
+  return m ? {type:m[1].toLowerCase()} : null;
+}
+function restrictionAllows(restr, spell){
+  if(!restr) return true;
+  if(!spell) return false;
+  return new RegExp('\\b'+restr.type+'\\b','i').test(spell.typeLine||'');
+}
+
 /* How many LANDS carry at least one of `types`. Counted per card, not per type —
    a land with both required types (Blood Crypt is Land — Swamp Mountain, Hallowed
    Fountain is Land — Plains Island) is still only one permanent, so summing
@@ -457,10 +528,15 @@ function countEnablers(lands, types){
   return n;
 }
 
-/* Sources of colour `col` available on `turn`. Unconditional producers count 1.0;
-   a conditional dual's off-colour is weighted by P(you have an enabler by then). */
-function sourcesFor(col, turn, lands, enablers, N, onPlay){
-  let full=0, frac=0, weight=null;
+/* Sources of colour `col` available on `turn`.
+
+   Unconditional producers count 1.0; a conditional dual's off-colour is weighted
+   by P(you have an enabler by then). Restricted-use lands count only when
+   `spell` is supplied AND satisfies the restriction — otherwise they are held
+   out and reported in `restricted`, so a summary figure never quietly includes
+   mana you cannot spend on the thing you are worried about. */
+function sourcesFor(col, turn, lands, enablers, N, onPlay, spell){
+  let full=0, frac=0, weight=null, restricted=0;
   lands.forEach(c=>{
     if(c.verge){
       if(c.verge.base===col) full+=c.qty;
@@ -469,9 +545,14 @@ function sourcesFor(col, turn, lands, enablers, N, onPlay){
         const w=hyperAtLeast(1,en,Math.min(cardsSeen(turn,onPlay),N),N);
         weight=w; frac+=c.qty*w;
       }
-    } else if((c.produces||[]).includes(col)) full+=c.qty;
+    } else if((c.produces||[]).includes(col)){
+      if(c.restriction){
+        if(restrictionAllows(c.restriction, spell)) full+=c.qty;
+        else restricted+=c.qty;
+      } else full+=c.qty;
+    }
   });
-  return {full, frac, total:full+frac, weight};
+  return {full, frac, total:full+frac, weight, restricted};
 }
 
 function parseList(text){
@@ -504,7 +585,8 @@ function parseList(text){
     } else if(rec){
       card={name,qty,land:rec.land,produces:rec.produces||[],tapped:!!rec.tapped,
             cmc:rec.cmc,pips:rec.pips,cost:rec.cost,rampdraw:rec.rampdraw,mdfcLand:rec.mdfcLand,
-            subtypes:rec.subtypes||[], verge:rec.verge||null, typeLine:rec.typeLine||'', src:'scryfall'};
+            subtypes:rec.subtypes||[], verge:rec.verge||null, typeLine:rec.typeLine||'',
+            fetch:rec.fetch||null, restriction:rec.restriction||null, src:'scryfall'};
     } else {
       card={name,qty,unknown:true,land:false,produces:[],cmc:0,pips:{W:0,U:0,B:0,R:0,G:0},src:'none'};
       unknown.push(name);
@@ -534,15 +616,28 @@ function analyse(){
   const enablers={};
   lands.forEach(c=>(c.subtypes||[]).forEach(t=>{ if(BASICS.includes(t)) enablers[t]=(enablers[t]||0)+c.qty; }));
 
+  /* Resolve fetchlands against the real land base before counting anything.
+     Scryfall gives them no produced_mana, so a fetch arrives here producing
+     nothing at all; what it can actually get depends on this deck's lands. */
+  lands.forEach(c=>{ if(c.fetch) c.produces = resolveFetch(c.fetch, lands); });
+  const fetchInfo = lands.filter(c=>c.fetch)
+    .map(c=>({name:c.name, qty:c.qty, produces:c.produces.slice(), tapped:!!c.fetch.tapped}));
+
   // colored sources, evaluated at a reference turn (refined per-colour below)
-  const sources={W:0,U:0,B:0,R:0,G:0}, untapped={W:0,U:0,B:0,R:0,G:0}, condInfo={};
+  const sources={W:0,U:0,B:0,R:0,G:0}, untapped={W:0,U:0,B:0,R:0,G:0}, condInfo={}, restrictedInfo={};
   COLORS.forEach(col=>{
     const s=sourcesFor(col,3,lands,enablers,N,onPlay);
     sources[col]=s.total;
     if(s.frac>0) condInfo[col]={frac:s.frac, weight:s.weight};
+    if(s.restricted>0) restrictedInfo[col]=s.restricted;
   });
   lands.forEach(c=>{
     if(c.tapped) return;
+    // A fetch enters untapped but hands you a TAPPED land (Evolving Wilds,
+    // Fabled Passage), so it buys you no untapped mana on the turn you use it.
+    if(c.fetch && c.fetch.tapped) return;
+    // Restricted mana is not general-purpose mana; keep it out of this figure.
+    if(c.restriction) return;
     if(c.verge){ untapped[c.verge.base]+=c.qty; return; }
     (c.produces||[]).forEach(col=>{ if(untapped[col]!=null) untapped[col]+=c.qty; });
   });
@@ -561,31 +656,46 @@ function analyse(){
   if(N!==60) rec = rec*N/60;
   const recR = Math.round(rec);
 
-  // colour requirements — driven by the most demanding on-curve spell
-  const drivers=[], need={W:0,U:0,B:0,R:0,G:0}, needFrom={}, needTurn={};
+  /* Colour requirements — driven by the most demanding on-curve spell.
+
+     Each spell is passed into sourcesFor, because a restricted land counts for
+     some spells and not others. Castle Doom pays for Pinnacle Starcage (an
+     artifact) but not for United Battlefront (a sorcery), and the requirement
+     rows have to reflect that or they are comparing against mana you cannot
+     spend. */
+  const drivers=[], need={W:0,U:0,B:0,R:0,G:0}, needFrom={}, needTurn={}, needCard={};
   spells.forEach(c=>{
     COLORS.forEach(col=>{
       const p=Math.ceil(c.pips[col]||0);
       if(p<1) return;
       const turn=Math.max(1,Math.min(7,Math.round(c.cmc)||1));
       const r=required(p,turn); if(!r) return;
-      const s=sourcesFor(col,turn,lands,enablers,N,onPlay);
+      const s=sourcesFor(col,turn,lands,enablers,N,onPlay,c);
       drivers.push({name:c.name,cost:c.cost||'',qty:c.qty,col,pips:p,turn,req:r,
-                    have:s.total,haveFull:s.full,haveFrac:s.frac});
-      if(r.use>need[col]){ need[col]=r.use; needFrom[col]=c.name; needTurn[col]=turn; }
+                    have:s.total,haveFull:s.full,haveFrac:s.frac,haveRestricted:s.restricted});
+      // Bind on the biggest shortfall, not the biggest requirement — a spell
+      // needing 18 with 18 sources is fine; one needing 11 with 5 is the problem.
+      const short=r.use-s.total;
+      const bound=needCard[col];
+      const boundShort=bound? need[col]-bound.have : -Infinity;
+      if(!bound || short>boundShort){
+        need[col]=r.use; needFrom[col]=c.name; needTurn[col]=turn;
+        needCard[col]={card:c, have:s.total, restricted:s.restricted, frac:s.frac, weight:s.weight};
+      }
     });
   });
-  drivers.sort((a,b)=> b.req.use-a.req.use);
+  drivers.sort((a,b)=> (b.req.use-b.have)-(a.req.use-a.have));
 
-  // re-evaluate each colour's supply at the turn its requirement actually binds
+  // report each colour's supply as the binding spell actually sees it
   COLORS.forEach(col=>{
-    if(!needTurn[col]) return;
-    const s=sourcesFor(col,needTurn[col],lands,enablers,N,onPlay);
-    sources[col]=s.total;
-    if(s.frac>0) condInfo[col]={frac:s.frac, weight:s.weight};
+    const b=needCard[col]; if(!b) return;
+    sources[col]=b.have;
+    if(b.frac>0) condInfo[col]={frac:b.frac, weight:b.weight};
+    if(b.restricted>0) restrictedInfo[col]=b.restricted; else delete restrictedInfo[col];
   });
 
   return {cards,unknown,total,lands,spells,landCount,spellCount,sources,untapped,enablers,condInfo,
+          restrictedInfo,fetchInfo,
           curve,avgMV,rec,recR,need,needFrom,needTurn,drivers,N,thr,onPlay,rampN,mdfcT,mdfcU};
 }
 
@@ -890,6 +1000,7 @@ function renderColors(A){
     const cls = have>=want?'good':short<=2?'warn':'bad';
     const col = have>=want?'var(--good)':short<=2?'var(--warn)':'var(--bad)';
     const ci=A.condInfo[c];
+    const rest=(A.restrictedInfo||{})[c]||0;
     h+=`<div style="margin-bottom:15px">
       <div class="row" style="justify-content:space-between">
         <div>${colDot(c)} <b>${CNAME[c]}</b> <span class="mini">${want?('driven by '+A.needFrom[c]+' on T'+A.needTurn[c]):''}</span></div>
@@ -899,7 +1010,8 @@ function renderColors(A){
       </div>
       <div class="bar"><i style="width:${ratio/1.4*100}%;background:${col}"></i></div>
       <div class="mini" style="margin-top:3px">${Math.round(un*10)/10} untapped${
-        ci?` · includes <b>${Math.round(ci.frac*10)/10}</b> from conditional duals, discounted to ${(ci.weight*100).toFixed(0)}% (odds you control an enabling basic type by T${A.needTurn[c]||3})`:''}</div>
+        ci?` · includes <b>${Math.round(ci.frac*10)/10}</b> from conditional duals, discounted to ${(ci.weight*100).toFixed(0)}% (odds you control an enabling basic type by T${A.needTurn[c]||3})`:''}${
+        rest?` · <b class="warn">${rest}</b> more restricted-use, which ${A.needFrom[c]} cannot spend`:''}</div>
     </div>`;
   });
   if(Object.keys(A.condInfo||{}).length){
@@ -916,6 +1028,27 @@ function renderColors(A){
       only while you control one of two basic land <i>types</i>. Any land with that type counts — basics, shocklands,
       surveil lands and triomes all qualify; Pathways, fastlands and painlands do not, and Verges do
       <b>not</b> enable each other. A land carrying <i>both</i> required types is still one permanent and is counted once.
+      <table style="margin-top:9px"><tbody>${rows}</tbody></table></div>`;
+  }
+  if((A.fetchInfo||[]).length){
+    const rows=[...new Map(A.fetchInfo.map(f=>[f.name,f])).values()].map(f=>
+      `<tr><td><b>${f.name}</b></td>
+        <td>${f.produces.length?f.produces.map(c=>colDot(c)+CNAME[c]).join(' '):'<b class="bad">nothing</b>'}</td>
+        <td class="mini">${f.tapped?'fetches a tapped land':'fetches untapped'}</td></tr>`).join('');
+    h+=`<div class="flag"><b>Fetchlands resolved against your deck.</b> Scryfall reports no mana at all for a fetch,
+      so these are worked out from the lands you actually run — a Misty Rainforest in a deck with no Islands is not a
+      blue source. Fetches that put the land in tapped are excluded from the untapped count.
+      <table style="margin-top:9px"><tbody>${rows}</tbody></table></div>`;
+  }
+  if(Object.keys(A.restrictedInfo||{}).length){
+    const rl=[...new Map(A.lands.filter(c=>c.restriction).map(c=>[c.name,c])).values()];
+    const rows=rl.map(c=>`<tr><td><b>${c.qty} ${c.name}</b></td>
+      <td class="mini">only for <b>${c.restriction.type}</b> spells</td>
+      <td class="mini">${c.typeLine||''}</td></tr>`).join('');
+    h+=`<div class="flag"><b>Restricted-use mana held out.</b> These add any colour but restrict what it can pay for,
+      and Scryfall's data carries no hint of it. They are counted only for spells that satisfy the restriction, so the
+      same land can count toward one requirement and not another. Where it cannot be verified, it does not count —
+      understating a restricted land costs you a land you did not need, overstating it costs you the game.
       <table style="margin-top:9px"><tbody>${rows}</tbody></table></div>`;
   }
   $('colorPanels').innerHTML = h || '<div class="dim">No coloured spells detected yet.</div>';
@@ -1014,7 +1147,9 @@ function renderMethod(A){
 
   <h3>Known limitations</h3>
   <div class="note">
-  · Fetchlands are counted as sources for every colour they can retrieve, which slightly overstates them (they cost life and can be Blood Moon'd).<br>
+  · Fetchlands are resolved against <i>your</i> land base: a fetch counts for a colour only if this deck actually runs a land it can retrieve producing that colour. Still slightly generous — fetches cost life, can be Blood Moon'd, and thin at the cost of a shuffle.<br>
+  · Fetches that put the land onto the battlefield tapped (Evolving Wilds, Fabled Passage) are excluded from the untapped-source count.<br>
+  · Restricted-use lands (Castle Doom, Cavern of Souls, Spire of Industry) count only toward spells that satisfy the restriction. Where the restriction cannot be checked against a type line — "multicolored", Cavern's chosen creature type — the source is not counted at all, deliberately erring low.<br>
   · The Verge discount uses cards <i>seen</i> as a proxy for lands <i>in play</i>, which is mildly optimistic — you may hold an enabler you haven't cast.<br>
   · Tainted lands and Nimbus Maze use the same mechanic but a different text shape, and are not auto-detected.<br>
   · Mana dorks and rocks are not auto-counted as sources; add them manually if your deck leans on them.<br>
@@ -1169,10 +1304,22 @@ async function lookup(){
       const j=await r.json();
       (j.data||[]).forEach(cd=>{
         const face = cd.card_faces && !cd.mana_cost ? cd.card_faces[0] : cd;
+        const frontFace = (cd.card_faces && cd.card_faces[0]) || cd;
         const {isLand, backLand} = landFaces(cd);
         const txt=((face.oracle_text||'')+' '+(cd.oracle_text||'')).toLowerCase();
         const oracle=cd.oracle_text||face.oracle_text||'';
-        const subtypes=((cd.type_line||'').split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
+        /* Type line comes from the FRONT face.
+
+           A card in the library, in hand, or being cast has its front face's
+           characteristics, and Scryfall's combined type line quietly breaks
+           anything that pattern-matches on it. Tony Stark // The Invincible Iron
+           Man reads "Legendary Creature — Human Artificer Hero // Legendary
+           Artifact Creature — Human Hero", so an /artifact/ test says yes and
+           Castle Doom's artifact-only mana appears to pay for a creature spell
+           it cannot cast. Same class of error let "Sorcery // Land" match a
+           land filter in the payoff matcher. */
+        const typeLine=frontFace.type_line||cd.type_line||'';
+        const subtypes=(typeLine.split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
         const pc=parseCost(face.mana_cost||cd.mana_cost||'');
         DB[cd.name.toLowerCase()]={
           land:isLand, produces:(cd.produced_mana||[]).filter(x=>COLORS.includes(x)),
@@ -1183,8 +1330,10 @@ async function lookup(){
                 : false,
           cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
           mdfcLand: !isLand && backLand,
-          typeLine: cd.type_line||face.type_line||'',
+          typeLine,
           subtypes, verge: isLand ? parseVerge(oracle) : null,
+          fetch: isLand ? parseFetch(oracle) : null,
+          restriction: isLand ? parseRestriction(oracle) : null,
           rampdraw: isRampDraw(txt, cd.cmc, isLand)
         };
         // also key the front-face name for MDFCs / split cards

@@ -27,24 +27,30 @@ split in two:
 
 | Colour | With Castle Doom (artifact spells) | Without (non-artifact spells) |
 |---|---|---|
-| W | 18 | 14 |
-| U | 15.9 | 11.9 |
+| W | 20 | 16 |
+| U | 17.6 | 13.6 |
 | R | 5 | 1 |
 
-Requirements, evaluated against whichever column actually applies:
+Requirements, evaluated against whichever column actually applies. The tool now
+does this split automatically — each requirement row is computed against the
+spell that drives it, so Castle Doom counts for the artifacts and not for the
+sorcery:
 
 | Spell | Type | Need | Have | |
 |---|---|---|---|---|
-| Pinnacle Starcage `{1}{W}{W}` T3 | artifact | 18 | 18 | exactly at |
-| Cryogen Relic `{1}{U}` T2 | artifact | 13 | 15.9 | fine |
-| Simulacrum Synthesizer `{2}{U}` T3 | artifact | 12 | 15.7 | fine |
-| Krang, Master Mind `{6}{U}{U}` T7 | artifact | 13 | 15.9 | fine |
-| **United Battlefront `{3}{W}` T4** | **sorcery** | 11 | **14** | fine |
-| **Tony Stark `{1}{U}` T2** | **creature** | 13 | **11.6** | ~1.4 short |
+| Pinnacle Starcage `{1}{W}{W}` T3 | artifact | 18 | 20 | fine |
+| Cryogen Relic `{1}{U}` T2 | artifact | 13 | 17.6 | fine |
+| Simulacrum Synthesizer `{2}{U}` T3 | artifact | 12 | 17.7 | fine |
+| Krang, Master Mind `{6}{U}{U}` T7 | artifact | 13 | 17.9 | fine |
+| **United Battlefront `{3}{W}` T4** | **sorcery** | 11 | **16** | fine |
+| **Tony Stark `{1}{U}` T2** | **creature** | 13 | **13.6** | just clears |
 | **Getaway Barrel `{3}{R}` T4** | artifact | 11 | **5** | **6 short** |
 
-Pinnacle Starcage landing exactly on 18 is worth noting: it only clears because
-Castle Doom counts, and it clears with zero margin.
+Two of these moved once fetchlands were modelled properly (§ tool bugs, item 6):
+the two Fabled Passage resolve to white and blue, which is what lifts Pinnacle
+Starcage off its old knife-edge 18-for-18 and drags Tony Stark from ~1.4 short to
+barely clearing. Red is untouched, because the deck runs no basic Mountain for a
+Passage to find — which is itself the tell.
 
 ## 2. Getaway Barrel is not meant to be cast
 
@@ -177,7 +183,7 @@ or so more red sources — not a card-selection one.
 
 ## Tool bugs found
 
-All four are fixed as of 2026-08-11; 182 tests green.
+All seven are fixed as of 2026-08-11; 221 tests green, up from 152.
 
 1. **Lands counted as cheap ramp/draw.** `rampdraw` tested
    `cmc <= 2 && /draw a card|search your library for a( basic)? land/` without
@@ -203,14 +209,29 @@ All four are fixed as of 2026-08-11; 182 tests green.
    so the MDFC term in Karsten's regression never fired for the exact cards it
    exists to handle. Classification now reads the front face.
 
-5. **Restricted-use mana is not modelled** (open limitation, not fixed). Castle
-   Doom, Cavern of Souls and Spire of Industry are all counted as unrestricted
-   sources of every colour they list. The honest fix is a per-source restriction
-   tag; for now it is a Method-tab caveat.
+5. **Restricted-use mana was counted as unrestricted.** Castle Doom, Cavern of
+   Souls and Spire of Industry add "one mana of any color" and then take most of
+   it back, and `produced_mana` carries no hint of it. Now parsed and checked
+   per-spell: a requirement row only counts the source if the spell driving it
+   satisfies the restriction. Where it cannot be verified against a type line —
+   "multicolored", Cavern's chosen creature type, or any summary figure with no
+   spell in hand — it does not count at all. Erring low costs a land you did not
+   need; erring high costs the game.
 
-6. **Fetchlands contribute zero coloured sources** (open limitation). Scryfall
-   gives Misty Rainforest and Fabled Passage no `produced_mana`, so they count
-   as lands that produce nothing. Note this contradicts the Method tab, which
-   still claims fetchlands count for every colour they can retrieve — the
-   documented limitation is backwards, and the real behaviour is pessimistic,
-   not generous. Matters most for Modern and Legacy decks running 8–12 fetches.
+6. **Fetchlands contributed zero coloured sources.** Scryfall gives Misty
+   Rainforest and Fabled Passage no `produced_mana` at all, so they counted as
+   lands producing nothing — and the Method tab claimed the exact opposite,
+   which is worse than the bug. Fetches are now resolved against the deck's own
+   land base: a fetch counts for a colour only if this deck runs a retrievable
+   land producing it. Verified on a real Modern manabase, where Polluted Delta
+   correctly picks up red through Volcanic Island, and blue/red go from roughly
+   7/4 to 23/22 — the difference between the tool condemning a fine manabase and
+   passing it.
+
+7. **MDFC type lines leaked the back face into every type test.** Scryfall's
+   combined line for Tony Stark reads `Legendary Creature — Human Artificer Hero
+   // Legendary Artifact Creature — Human Hero`, so an `/artifact/` test matched
+   and Castle Doom appeared to pay for a creature spell it cannot cast. Found
+   only because the restriction model made the wrong answer visible. Type lines
+   now come from the front face, which is also what fixed `Sorcery // Land`
+   matching a land filter in the payoff matcher.

@@ -43,6 +43,10 @@ Karsten conditions on having made your land drops and measures color screw *give
 
 Proof the conditioning is necessary: the unconditional model *saturates* — no number of sources reaches 90% for a five-drop, because with 24 lands you can't reliably have five lands on turn five at all.
 
+**Fetchlands** are resolved against your own land base. Scryfall reports no mana at all for a fetch, so counting `produced_mana` makes Misty Rainforest a land that produces nothing — ruinous for any deck on eight or more fetches. Instead the tool works out what your deck can actually retrieve: a Misty Rainforest in a deck with no Islands is not a blue source, and a Polluted Delta picks up red if you run a Volcanic Island. Fetches that put the land in tapped are kept out of the untapped count.
+
+**Restricted-use lands** — Castle Doom, Cavern of Souls, Spire of Industry — add any colour and then restrict what it can pay for, with nothing in Scryfall's data to signal it. Each requirement is checked against the spell that drives it, so the same land can count toward one and not another. When the restriction can't be verified against a type line, it doesn't count: understating a restricted land costs you a land you didn't need, overstating it costs you the game.
+
 **Conditional duals (Verges)** are handled specially. Scryfall's `produced_mana` lists both colors with no signal about which is conditional, so counting them naively inflates your off-color by a full source each. The tool parses oracle text instead and discounts the off-color by the probability you control an enabling basic land type. Enablers are counted per permanent — a land carrying both required types (Blood Crypt, Hallowed Fountain) is still one permanent.
 
 ## Decklist format
