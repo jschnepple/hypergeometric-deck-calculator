@@ -1,0 +1,36 @@
+// Barrel Boys v1 — Jeff's Standard brew
+// 60 cards: 35 spells, 25 lands
+
+// --- Creatures (8) ---
+1 Ultron, Artificial Malevolence
+4 Krang, Utrom Warlord
+1 Krang, Master Mind
+2 Tony Stark
+
+// --- Noncreature permanents, MV<=3 (United Battlefront hits, 21) ---
+4 Simulacrum Synthesizer
+4 Cryogen Relic
+4 Repurposing Bay
+3 Perilous Snare
+2 Pinnacle Starcage
+2 Spring-Loaded Sawblades
+1 The Mind Stone
+1 Clay-Fired Bricks
+
+// --- Other spells (6) ---
+1 Getaway Barrel
+1 Transmutation Font
+4 United Battlefront
+
+// --- Lands (25) ---
+4 Plains
+3 Island
+1 Ishgard, the Holy See
+3 Floodfarm Verge
+3 Hallowed Fountain
+2 Meticulous Archive
+2 Fabled Passage
+1 Sacred Foundry
+1 Fomori Vault
+1 Mistrise Village
+4 Castle Doom
