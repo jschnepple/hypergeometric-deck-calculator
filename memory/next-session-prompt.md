@@ -1,6 +1,14 @@
 # Next session — glassmorphism visual overhaul
 
-Status: **pending.** Written 2026-08-11. Paste the block below to start.
+Status: **SUPERSEDED** by [[next-session-prompt-glassmorphism]]. Kept for history.
+
+This version was written before the first real decklist went through the tool. Its
+test count (152) and file inventory are stale, and it predates the seven bugs found
+in the second session. Use `memory/next-session-prompt-glassmorphism.md` instead.
+
+---
+
+Written 2026-08-11.
 
 ---
 
