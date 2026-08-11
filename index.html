@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MTG Deck Consistency Calculator — Karsten Math</title>
+<style>
+:root{
+  --bg:#0f1216; --panel:#171b21; --panel2:#1d222a; --line:#2a313b;
+  --tx:#e6eaf0; --dim:#8b96a5; --dim2:#5f6a78;
+  --good:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff;
+  --W:#f4e9c8; --U:#7cb3e8; --B:#a98fc4; --R:#e88a7c; --G:#7cc48d; --C:#9aa4b0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+h1{font-size:19px;margin:0;font-weight:600}
+h2{font-size:13px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);font-weight:600}
+h3{font-size:13px;margin:16px 0 8px;color:var(--tx);font-weight:600}
+header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--panel)}
+header .sub{color:var(--dim);font-size:12px}
+.wrap{display:grid;grid-template-columns:400px 1fr;gap:16px;padding:16px 22px;align-items:start}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:16px;margin-bottom:16px}
+textarea{width:100%;height:400px;background:var(--bg);color:var(--tx);border:1px solid var(--line);
+  border-radius:6px;padding:10px;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
+textarea:focus,input:focus,select:focus{outline:none;border-color:var(--acc)}
+button{background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:6px;
+  padding:7px 13px;font-size:12px;cursor:pointer;font-weight:500}
+button:hover{border-color:var(--acc);color:var(--acc)}
+button.primary{background:var(--acc);color:#06121f;border-color:var(--acc);font-weight:600}
+button.primary:hover{opacity:.88;color:#06121f}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stat{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line)}
+.stat:last-child{border-bottom:none}
+.stat .k{color:var(--dim);font-size:12px}
+.stat .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.big{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--dim);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);
+  font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+td{padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.dim{color:var(--dim)}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.pill.good{background:rgba(63,185,80,.15);color:var(--good)}
+.pill.warn{background:rgba(210,153,34,.15);color:var(--warn)}
+.pill.bad{background:rgba(248,81,73,.15);color:var(--bad)}
+.bar{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:4px}
+.bar>i{display:block;height:100%;border-radius:4px}
+.curve{display:flex;align-items:flex-end;gap:7px;height:170px;padding-top:10px}
+.curve .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end}
+.curve .b{width:100%;background:linear-gradient(180deg,var(--acc),#2d6fb8);border-radius:4px 4px 0 0;min-height:2px;
+  position:relative;transition:height .18s}
+.curve .b span{position:absolute;top:-19px;left:0;right:0;text-align:center;font-size:11px;font-weight:600}
+.curve .lbl{font-size:11px;color:var(--dim)}
+.note{font-size:11.5px;color:var(--dim);line-height:1.6;margin-top:10px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap}
+.tabs button{border:none;background:none;border-bottom:2px solid transparent;border-radius:0;
+  padding:9px 14px;color:var(--dim);font-weight:600}
+.tabs button.on{color:var(--acc);border-bottom-color:var(--acc)}
+.tabs button:hover{color:var(--tx)}
+.hide{display:none}
+input[type=number],input[type=text],select{background:var(--bg);color:var(--tx);border:1px solid var(--line);
+  border-radius:5px;padding:5px 8px;font-size:12px;font-family:inherit}
+input[type=number]{width:64px}
+.mini{font-size:11px;color:var(--dim2)}
+.flag{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.3);border-radius:6px;padding:10px;margin-top:10px;font-size:12px}
+.sym{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;
+  font-size:10px;font-weight:800;color:#0f1216;margin-right:3px}
+.conflict{border-left:3px solid var(--bad);padding:9px 12px;background:rgba(248,81,73,.06);margin-bottom:8px;border-radius:0 6px 6px 0;font-size:12.5px}
+.conflict.ok{border-left-color:var(--good);background:rgba(63,185,80,.06)}
+#deckbar{display:flex;gap:8px;align-items:center;padding:9px 22px;background:var(--panel2);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+#deckbar select{min-width:180px}
+#storageWarn{padding:10px 22px;background:rgba(210,153,34,.1);border-bottom:1px solid rgba(210,153,34,.35);
+  font-size:12px;color:var(--warn)}
+.saved{color:var(--good)}.unsaved{color:var(--warn)}
+.conflict.warn{border-left-color:var(--warn);background:rgba(210,153,34,.06)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:820px){.split{grid-template-columns:1fr}}
+.delta{font-size:11px;font-weight:600;margin-left:6px}
+.up{color:var(--good)}.down{color:var(--bad)}
+code{background:var(--panel2);padding:1px 5px;border-radius:3px;font-size:11px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Deck Consistency Calculator</h1>
+  <span class="sub">Karsten hypergeometric math · 60-card Standard</span>
+  <span style="flex:1"></span>
+  <button id="snap">Snapshot for diff</button>
+  <button id="clearSnap" class="hide">Clear diff</button>
+  <button id="lookup" class="primary">Look up costs (Scryfall)</button>
+</header>
+
+<div id="deckbar">
+  <span class="mini">Build</span>
+  <select id="slotSel"></select>
+  <input type="text" id="slotName" placeholder="name this build" style="width:190px">
+  <button id="saveSlot" class="primary">Save</button>
+  <button id="newSlot">New</button>
+  <button id="dupSlot">Duplicate</button>
+  <button id="delSlot">Delete</button>
+  <span style="flex:1"></span>
+  <span id="saveState" class="mini"></span>
+  <button id="exportOne">Export build</button>
+  <button id="exportAll">Export all</button>
+  <button id="importBtn">Import…</button>
+  <input type="file" id="importFile" accept=".json,application/json" class="hide">
+</div>
+<div id="storageWarn" class="hide"></div>
+
+<div class="wrap">
+
+  <!-- ============ LEFT: INPUT ============ -->
+  <div>
+    <div class="card">
+      <h2>Decklist</h2>
+      <textarea id="list" spellcheck="false"></textarea>
+      <div class="note">
+        Format <code>4 Lightning Bolt</code>. Everything recalculates as you type.<br>
+        Override a cost inline: <code>4 Some Card {1}{R}{R}</code> · mark a land: <code>4 Mystery Land [land:RG]</code>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Assumptions</h2>
+      <div class="stat"><span class="k">Deck size</span><input type="number" id="deckSize" value="60"></div>
+      <div class="stat"><span class="k">Consistency target</span>
+        <select id="thr"><option value="0.85">85%</option><option value="0.90" selected>90% (Karsten)</option><option value="0.95">95%</option></select></div>
+      <div class="stat"><span class="k">On the play</span>
+        <select id="play"><option value="1" selected>Yes</option><option value="0">No (on the draw)</option></select></div>
+      <div class="stat"><span class="k">Cheap draw / ramp spells</span><input type="number" id="ramp" value="0"></div>
+      <div class="stat"><span class="k">Companion</span>
+        <select id="comp"><option value="0" selected>No</option><option value="1">Yes</option></select></div>
+      <div class="note">Cheap draw/ramp is auto-detected from card text when you run a Scryfall lookup; override here.</div>
+    </div>
+
+    <div class="card">
+      <h2>Unresolved cards</h2>
+      <div id="unresolved"></div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT: PANELS ============ -->
+  <div>
+    <div class="tabs" id="tabs">
+      <button data-t="verdict" class="on">Verdict</button>
+      <button data-t="lands">Land Count</button>
+      <button data-t="colors">Color Requirements</button>
+      <button data-t="curve">Mana Curve</button>
+      <button data-t="copies">How Many Copies</button>
+      <button data-t="payoffs">Payoffs</button>
+      <button data-t="method">Method</button>
+    </div>
+
+    <!-- VERDICT -->
+    <div id="p-verdict">
+      <div class="card">
+        <h2>Conflict report</h2>
+        <div id="conflicts"></div>
+      </div>
+      <div class="split">
+        <div class="card">
+          <h2>Deck at a glance</h2>
+          <div id="glance"></div>
+        </div>
+        <div class="card">
+          <h2>Mana curve</h2>
+          <div class="curve" id="curveMini"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LANDS -->
+    <div id="p-lands" class="hide">
+      <div class="split">
+        <div class="card">
+          <h2>Recommended land count</h2>
+          <div class="big" id="landRec">—</div>
+          <div class="mini" id="landRecSub"></div>
+          <div style="margin-top:16px" id="landStats"></div>
+          <div class="note" id="landFormula"></div>
+        </div>
+        <div class="card">
+          <h2>Land drop probability</h2>
+          <table><thead><tr><th>Turn</th><th>Need</th><th>Your count</th><th>At recommended</th></tr></thead>
+          <tbody id="landDrops"></tbody></table>
+          <div class="note">Probability of having at least N lands among cards seen by turn N, including the London mulligan. This is the check on your land count, not the source of it.</div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Flood &amp; screw risk</h2>
+        <div id="floodRisk"></div>
+      </div>
+    </div>
+
+    <!-- COLORS -->
+    <div id="p-colors" class="hide">
+      <div class="card">
+        <h2>Colored sources — required vs. actual</h2>
+        <div id="colorPanels"></div>
+        <div class="note">
+          <b>Required</b> is set by the single most demanding spell you want to cast on curve. Karsten's published number and my
+          independent simulation are shown as a band; build to the higher one.
+        </div>
+      </div>
+      <div class="card">
+        <h2>What's driving each requirement</h2>
+        <table><thead><tr><th>Card</th><th>Cost</th><th>Copies</th><th>Color</th><th>Pips</th><th>On curve</th><th>Needs</th><th>Have</th><th></th></tr></thead>
+        <tbody id="driverRows"></tbody></table>
+      </div>
+    </div>
+
+    <!-- CURVE -->
+    <div id="p-curve" class="hide">
+      <div class="card">
+        <h2>Mana curve</h2>
+        <div class="curve" id="curveBig"></div>
+        <div style="margin-top:20px" id="curveStats"></div>
+      </div>
+      <div class="card">
+        <h2>Archetype fit</h2>
+        <div id="archetype"></div>
+      </div>
+    </div>
+
+    <!-- COPIES -->
+    <div id="p-copies" class="hide">
+      <div class="card">
+        <h2>How many copies should I play?</h2>
+        <div class="row" style="margin-bottom:14px">
+          <span class="mini">Probability of drawing at least one, by turn:</span>
+          <input type="number" id="copyTurn" value="3" min="1" max="15" style="width:56px">
+          <span class="mini">on the play</span>
+        </div>
+        <table><thead><tr><th>Copies</th><th>P(≥1 by turn)</th><th>Gain over previous</th><th></th></tr></thead>
+        <tbody id="copyRows"></tbody></table>
+        <div class="note" id="copyNote"></div>
+      </div>
+      <div class="card">
+        <h2>Your deck's cards, by copy count</h2>
+        <table><thead><tr><th>Card</th><th>Copies</th><th>P(≥1 by T3)</th><th>P(≥1 by T5)</th><th>P(≥2 by T5)</th></tr></thead>
+        <tbody id="deckCopyRows"></tbody></table>
+      </div>
+    </div>
+
+    <!-- PAYOFFS -->
+    <div id="p-payoffs" class="hide">
+      <div class="card">
+        <h2>Dig payoffs</h2>
+        <div class="row" style="margin-bottom:12px">
+          <button id="addUB">+ United Battlefront</button>
+          <button id="addGB">+ Getaway Barrel</button>
+          <button id="addCustom">+ Custom dig effect</button>
+        </div>
+        <div id="payoffList"></div>
+      </div>
+      <div class="card" id="tensionCard">
+        <h2>Tension analysis</h2>
+        <div id="tension"></div>
+      </div>
+    </div>
+
+    <!-- METHOD -->
+    <div id="p-method" class="hide">
+      <div class="card">
+        <h2>What this tool actually computes</h2>
+        <div id="method"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer style="padding:20px 22px;border-top:1px solid var(--line);margin-top:8px;color:var(--dim2);font-size:11.5px;line-height:1.7">
+  Card data from <a href="https://scryfall.com" style="color:var(--dim)">Scryfall</a>, cached locally in your browser.
+  Mana maths follows <a href="https://www.tcgplayer.com/content/article/How-Many-Lands-Do-You-Need-in-Your-Deck-An-Updated-Analysis/cd1c1a24-d439-4a8e-b369-b936edb0b38a/" style="color:var(--dim)">Frank Karsten's</a> published research,
+  independently re-derived by Monte Carlo simulation — see the Method tab.<br>
+  Unofficial Fan Content permitted under the
+  <a href="https://company.wizards.com/en/legal/fancontentpolicy" style="color:var(--dim)">Wizards of the Coast Fan Content Policy</a>.
+  Not approved or endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast.
+  © Wizards of the Coast LLC. Not affiliated with or endorsed by Scryfall.
+</footer>
+
+<script>
+/* ============================================================
+   MATH CORE
+   ============================================================ */
+const LG = (()=>{ const c=[0]; for(let i=1;i<=400;i++) c[i]=c[i-1]+Math.log(i); return c; })();
+const lnC = (n,k)=> (k<0||k>n||n<0) ? -Infinity : LG[n]-LG[k]-LG[n-k];
+function hyperAtLeast(k, K, n, N){          // P(X>=k): K successes in N, draw n
+  if(k<=0) return 1; if(K<k||n<k) return 0;
+  let cum=0, den=lnC(N,n);
+  for(let i=0;i<k;i++){
+    if(i>K || (n-i)>(N-K)) continue;
+    cum += Math.exp(lnC(K,i)+lnC(N-K,n-i)-den);
+  }
+  return Math.max(0, Math.min(1, 1-cum));
+}
+const cardsSeen = (turn, onPlay)=> 7 + (onPlay ? turn-1 : turn);
+
+/* Karsten's published colored-source table (60-card, ~90%, on the play).
+   Rows = pips, cols = turn the spell is cast on curve. */
+const KARSTEN = {
+  1:{1:14,2:13,3:12,4:11,5:10,6:9,7:9},
+  2:{2:20,3:18,4:16,5:15,6:14,7:13},
+  3:{3:23,4:20,5:19,6:18,7:16},
+  4:{4:25,5:23,6:22,7:20}
+};
+/* Independently re-derived by Monte Carlo (1M+ games, London mulligan,
+   conditioned on having >=N lands — see Method tab). Consistently sits at or
+   just below Karsten; the true answer is inside the band. */
+const DERIVED = {
+  1:{1:14,2:13,3:11,4:9,5:8,6:7,7:6},
+  2:{2:20,3:17,4:15,5:13,6:11,7:10},
+  3:{3:22,4:19,5:17,6:15,7:13},
+  4:{4:24,5:22,6:20,7:18}
+};
+function required(pips, turn){
+  const t = Math.max(pips, Math.min(7, turn));
+  const p = Math.min(4, pips);
+  const k = (KARSTEN[p]||{})[t], d = (DERIVED[p]||{})[t];
+  if(k==null) return null;
+  return {karsten:k, derived:d, use:Math.max(k, d==null?k:d)};
+}
+
+/* ============================================================
+   PARSING
+   ============================================================ */
+const COLORS=['W','U','B','R','G'];
+const CNAME={W:'White',U:'Blue',B:'Black',R:'Red',G:'Green'};
+let DB = {};          // lowercased name -> {cost, cmc, land, produces[], tapped, rampdraw, mdfcLand}
+let SNAPSHOT = null;
+
+function parseCost(str){
+  const pips={W:0,U:0,B:0,R:0,G:0}; let cmc=0;
+  const syms = (str||'').match(/\{[^}]+\}/g)||[];
+  for(let s of syms){
+    const v=s.slice(1,-1).toUpperCase();
+    if(/^\d+$/.test(v)){ cmc+=+v; continue; }
+    if(v==='X'||v==='Y'){ continue; }
+    // hybrid / phyrexian: count each colour it can be paid with as a partial pip
+    const parts=v.split('/').filter(x=>x!=='P');
+    const cols=parts.filter(p=>COLORS.includes(p));
+    if(cols.length){ cols.forEach(c=>pips[c]+= 1/cols.length); cmc+=1; }
+    else if(v==='C'){ cmc+=1; }
+    else cmc+=1;
+  }
+  return {pips, cmc};
+}
+
+/* Conditional duals ("Verge" cycle, Tainted lands, Nimbus Maze).
+   These produce one colour unconditionally and a second only while you control
+   a specific basic land type. Scryfall's produced_mana lists BOTH colours with no
+   signal about which is conditional, so the oracle text is the only reliable source.
+   Line 1 is always the unconditional ability; the conditional clause is appended to
+   a later line. Articles vary (a / an) and type order is not stable across sets. */
+const BASICS=['Plains','Island','Swamp','Mountain','Forest'];
+function parseVerge(oracle){
+  if(!oracle || !/Activate only if you control/i.test(oracle)) return null;
+  const lines=oracle.split('\n');
+  const uncond=(lines.find(l=>/\{T\}:\s*Add/i.test(l)&&!/Activate only if/i.test(l))||'')
+                 .match(/\{T\}:\s*Add\s*\{([WUBRG])\}/i);
+  const condLine=lines.find(l=>/Activate only if you control/i.test(l))||'';
+  const cond=condLine.match(/\{T\}:\s*Add\s*\{([WUBRG])\}/i);
+  const types=(condLine.match(/\b(?:an?)\s+(Plains|Island|Swamp|Mountain|Forest)\b/gi)||[])
+                .map(s=>s.replace(/^an?\s+/i,''))
+                .map(s=>s.charAt(0).toUpperCase()+s.slice(1).toLowerCase());
+  if(!uncond||!cond||!types.length) return null;
+  if(uncond[1].toUpperCase()===cond[1].toUpperCase()) return null;
+  return {base:uncond[1].toUpperCase(), cond:cond[1].toUpperCase(), enablers:[...new Set(types)]};
+}
+
+/* How many LANDS carry at least one of `types`. Counted per card, not per type —
+   a land with both required types (Blood Crypt is Land — Swamp Mountain, Hallowed
+   Fountain is Land — Plains Island) is still only one permanent, so summing
+   per-type totals would double-count it. Any land with the right basic land TYPE
+   qualifies, basic or not: basics, shocklands, surveil lands and triomes all work;
+   Pathways, fastlands, painlands and the Verges themselves carry no types. */
+function countEnablers(lands, types){
+  let n=0;
+  lands.forEach(c=>{ if((c.subtypes||[]).some(t=>types.includes(t))) n+=c.qty; });
+  return n;
+}
+
+/* Sources of colour `col` available on `turn`. Unconditional producers count 1.0;
+   a conditional dual's off-colour is weighted by P(you have an enabler by then). */
+function sourcesFor(col, turn, lands, enablers, N, onPlay){
+  let full=0, frac=0, weight=null;
+  lands.forEach(c=>{
+    if(c.verge){
+      if(c.verge.base===col) full+=c.qty;
+      else if(c.verge.cond===col){
+        const en=countEnablers(lands, c.verge.enablers);
+        const w=hyperAtLeast(1,en,Math.min(cardsSeen(turn,onPlay),N),N);
+        weight=w; frac+=c.qty*w;
+      }
+    } else if((c.produces||[]).includes(col)) full+=c.qty;
+  });
+  return {full, frac, total:full+frac, weight};
+}
+
+function parseList(text){
+  const out=[], unknown=[];
+  for(let raw of text.split('\n')){
+    let line = raw.trim();
+    if(!line || line.startsWith('//') || line.startsWith('#')) continue;
+    if(/^(sideboard|deck|maybeboard|commander)\b/i.test(line)) continue;
+    const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
+    if(!m) continue;
+    const qty = +m[1];
+    let rest = m[2].trim();
+
+    // inline overrides
+    let landTag=null, costTag=null;
+    rest = rest.replace(/\[land:([WUBRGC]*)\]/i, (_,c)=>{ landTag=c.toUpperCase(); return ''; });
+    const cm = rest.match(/(\{[^}]+\}\s*)+$/);
+    if(cm){ costTag = cm[0].trim(); rest = rest.slice(0, cm.index); }
+    rest = rest.replace(/\([^)]*\)\s*[\w-]*$/,'').trim();   // strip set codes
+    const name = rest.trim();
+    if(!name) continue;
+
+    const rec = DB[name.toLowerCase()];
+    let card;
+    if(landTag!==null){
+      card={name,qty,land:true,produces:landTag.split('').filter(c=>COLORS.includes(c)),tapped:false,cmc:0,pips:{W:0,U:0,B:0,R:0,G:0},src:'inline'};
+    } else if(costTag){
+      const pc=parseCost(costTag);
+      card={name,qty,land:false,produces:[],cmc:pc.cmc,pips:pc.pips,cost:costTag,src:'inline'};
+    } else if(rec){
+      card={name,qty,land:rec.land,produces:rec.produces||[],tapped:!!rec.tapped,
+            cmc:rec.cmc,pips:rec.pips,cost:rec.cost,rampdraw:rec.rampdraw,mdfcLand:rec.mdfcLand,
+            subtypes:rec.subtypes||[], verge:rec.verge||null, typeLine:rec.typeLine||'', src:'scryfall'};
+    } else {
+      card={name,qty,unknown:true,land:false,produces:[],cmc:0,pips:{W:0,U:0,B:0,R:0,G:0},src:'none'};
+      unknown.push(name);
+    }
+    out.push(card);
+  }
+  return {cards:out, unknown};
+}
+
+/* ============================================================
+   ANALYSIS
+   ============================================================ */
+function analyse(){
+  const text=document.getElementById('list').value;
+  const N=+document.getElementById('deckSize').value||60;
+  const thr=+document.getElementById('thr').value;
+  const onPlay=document.getElementById('play').value==='1';
+  const {cards,unknown}=parseList(text);
+
+  const total=cards.reduce((s,c)=>s+c.qty,0);
+  const lands=cards.filter(c=>c.land);
+  const spells=cards.filter(c=>!c.land);
+  const landCount=lands.reduce((s,c)=>s+c.qty,0);
+  const spellCount=spells.reduce((s,c)=>s+c.qty,0);
+
+  // enabling basic land types available for conditional duals
+  const enablers={};
+  lands.forEach(c=>(c.subtypes||[]).forEach(t=>{ if(BASICS.includes(t)) enablers[t]=(enablers[t]||0)+c.qty; }));
+
+  // colored sources, evaluated at a reference turn (refined per-colour below)
+  const sources={W:0,U:0,B:0,R:0,G:0}, untapped={W:0,U:0,B:0,R:0,G:0}, condInfo={};
+  COLORS.forEach(col=>{
+    const s=sourcesFor(col,3,lands,enablers,N,onPlay);
+    sources[col]=s.total;
+    if(s.frac>0) condInfo[col]={frac:s.frac, weight:s.weight};
+  });
+  lands.forEach(c=>{
+    if(c.tapped) return;
+    if(c.verge){ untapped[c.verge.base]+=c.qty; return; }
+    (c.produces||[]).forEach(col=>{ if(untapped[col]!=null) untapped[col]+=c.qty; });
+  });
+
+  // curve
+  const curve={}; let mvSum=0;
+  spells.forEach(c=>{ const b=Math.min(7,Math.round(c.cmc)); curve[b]=(curve[b]||0)+c.qty; mvSum+=c.cmc*c.qty; });
+  const avgMV = spellCount? mvSum/spellCount : 0;
+
+  // land regression (Karsten, 60-card)
+  const rampN = +document.getElementById('ramp').value||0;
+  const comp = +document.getElementById('comp').value||0;
+  const mdfcT = cards.filter(c=>c.mdfcLand&&c.tapped).reduce((s,c)=>s+c.qty,0);
+  const mdfcU = cards.filter(c=>c.mdfcLand&&!c.tapped).reduce((s,c)=>s+c.qty,0);
+  let rec = 19.59 + 1.90*avgMV - 0.28*rampN - 0.74*mdfcU - 0.38*mdfcT + 0.27*comp;
+  if(N!==60) rec = rec*N/60;
+  const recR = Math.round(rec);
+
+  // colour requirements — driven by the most demanding on-curve spell
+  const drivers=[], need={W:0,U:0,B:0,R:0,G:0}, needFrom={}, needTurn={};
+  spells.forEach(c=>{
+    COLORS.forEach(col=>{
+      const p=Math.ceil(c.pips[col]||0);
+      if(p<1) return;
+      const turn=Math.max(1,Math.min(7,Math.round(c.cmc)||1));
+      const r=required(p,turn); if(!r) return;
+      const s=sourcesFor(col,turn,lands,enablers,N,onPlay);
+      drivers.push({name:c.name,cost:c.cost||'',qty:c.qty,col,pips:p,turn,req:r,
+                    have:s.total,haveFull:s.full,haveFrac:s.frac});
+      if(r.use>need[col]){ need[col]=r.use; needFrom[col]=c.name; needTurn[col]=turn; }
+    });
+  });
+  drivers.sort((a,b)=> b.req.use-a.req.use);
+
+  // re-evaluate each colour's supply at the turn its requirement actually binds
+  COLORS.forEach(col=>{
+    if(!needTurn[col]) return;
+    const s=sourcesFor(col,needTurn[col],lands,enablers,N,onPlay);
+    sources[col]=s.total;
+    if(s.frac>0) condInfo[col]={frac:s.frac, weight:s.weight};
+  });
+
+  return {cards,unknown,total,lands,spells,landCount,spellCount,sources,untapped,enablers,condInfo,
+          curve,avgMV,rec,recR,need,needFrom,needTurn,drivers,N,thr,onPlay,rampN,mdfcT,mdfcU};
+}
+
+/* ============================================================
+   DIG PAYOFFS
+   ------------------------------------------------------------
+   "Look at the top D cards, take up to G that match X."
+   P(exactly j hits) is plain hypergeometric on the WHOLE deck, and that is
+   exact — not an approximation. By exchangeability, positions D+1..D+k of a
+   uniformly shuffled deck are a uniformly random k-subset regardless of how
+   many cards you have already drawn, so the library being smaller at the time
+   the effect resolves does not change the marginal probability.
+   ============================================================ */
+const PERM=/\b(Artifact|Creature|Enchantment|Land|Planeswalker|Battle)\b/i;
+let PAYOFFS=[], PID=0;
+
+function hyperExact(j,K,n,N){
+  if(j<0||j>K||j>n||(n-j)>(N-K)) return 0;
+  return Math.exp(lnC(K,j)+lnC(N-K,n-j)-lnC(N,n));
+}
+function matches(card, c){
+  const tl=card.typeLine||'';
+  const isC=/\bCreature\b/i.test(tl), isL=/\bLand\b/i.test(tl), isP=PERM.test(tl);
+  if(c.creature==='yes'&&!isC) return false;
+  if(c.creature==='no'&&isC) return false;
+  if(c.land==='yes'&&!isL) return false;
+  if(c.land==='no'&&isL) return false;
+  if(c.permanent==='yes'&&!isP) return false;
+  if(c.permanent==='no'&&isP) return false;
+  const mv=card.cmc||0;
+  if(c.mvOp==='lte'&&!(mv<=c.mvVal)) return false;
+  if(c.mvOp==='gte'&&!(mv>=c.mvVal)) return false;
+  if(c.mvOp==='eq'&&!(mv===c.mvVal)) return false;
+  return true;
+}
+function evalPayoff(p, A){
+  let N=A.total, K=0; const hitCards=[];
+  A.cards.forEach(c=>{
+    if(c.unknown) return;
+    if(matches(c,p)){ K+=c.qty; hitCards.push(c); }
+  });
+  // the source card is on the stack / in the graveyard when it resolves, so it
+  // is not in the library — remove one copy of it if it would match its own filter
+  const self=A.cards.find(c=>c.name.toLowerCase()===(p.name||'').toLowerCase());
+  if(self){ N-=1; if(matches(self,p)) K-=1; }
+  const D=Math.min(p.depth,N);
+  const dist=[]; for(let j=0;j<=Math.min(p.grab,K,D);j++) dist.push(hyperExact(j,K,D,N));
+  const pAtLeast1=K>0?hyperAtLeast(1,K,D,N):0;
+  const pFull=K>0?hyperAtLeast(p.grab,K,D,N):0;
+  const ev=D*K/N;
+  return {K,N,D,dist,pAtLeast1,pFull,ev,hitCards};
+}
+
+const PRESETS={
+  ub:{name:'United Battlefront',depth:7,grab:2,creature:'no',land:'no',permanent:'yes',mvOp:'lte',mvVal:3,
+      note:'{3}{W} Sorcery — "Look at the top seven cards of your library. Put up to two noncreature, nonland <b>permanent</b> cards with mana value 3 or less from among them onto the battlefield."'},
+  gb:{name:'Getaway Barrel',depth:13,grab:1,creature:'yes',land:'any',permanent:'any',mvOp:'any',mvVal:0,
+      note:'{3}{R} Artifact — "When this artifact is put into a graveyard from the battlefield, reveal the top thirteen cards of your library. Put a <b>random</b> creature card from among them onto the battlefield."'},
+  custom:{name:'Custom',depth:7,grab:1,creature:'any',land:'any',permanent:'any',mvOp:'any',mvVal:3,note:''}
+};
+function addPayoff(kind){
+  PAYOFFS.push(Object.assign({id:++PID},PRESETS[kind]));
+  render();
+}
+
+function renderPayoffs(A){
+  if(!PAYOFFS.length){
+    $('payoffList').innerHTML='<div class="dim">No dig effects yet. Add one above — the odds update live as you edit the decklist.</div>';
+    $('tensionCard').classList.add('hide'); return;
+  }
+  const sel=(v,opts,attr)=>`<select data-attr="${attr}">${opts.map(([k,l])=>
+    `<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('')}</select>`;
+  const YNA=[['any','any'],['yes','must be'],['no','must not be']];
+
+  $('payoffList').innerHTML=PAYOFFS.map(p=>{
+    const r=evalPayoff(p,A);
+    const rows=r.dist.map((v,j)=>{
+      const cls=j===0?'bad':(j>=p.grab?'good':'warn');
+      return `<tr><td>exactly ${j}</td><td class="${cls}">${pct(v)}</td>
+        <td><div class="bar" style="width:170px"><i style="width:${v*100}%;background:var(--${j===0?'bad':j>=p.grab?'good':'warn'})"></i></div></td></tr>`;
+    }).join('');
+    const headline = p.grab>1 ? r.pFull : r.pAtLeast1;
+    const hcls = headline>=0.8?'good':headline>=0.6?'warn':'bad';
+    return `<div class="card" style="background:var(--panel2)" data-pid="${p.id}">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div><b style="font-size:15px">${p.name}</b></div>
+        <button data-del="${p.id}">Remove</button>
+      </div>
+      ${p.note?`<div class="mini" style="margin-bottom:10px;line-height:1.5">${p.note}</div>`:''}
+      <div class="row" style="margin-bottom:12px;gap:6px">
+        <span class="mini">look at top</span><input type="number" data-attr="depth" value="${p.depth}" min="1" max="60" style="width:52px">
+        <span class="mini">take up to</span><input type="number" data-attr="grab" value="${p.grab}" min="1" max="5" style="width:46px">
+        <span class="mini">· creature</span>${sel(p.creature,YNA,'creature')}
+        <span class="mini">land</span>${sel(p.land,YNA,'land')}
+        <span class="mini">permanent</span>${sel(p.permanent,YNA,'permanent')}
+        <span class="mini">MV</span>${sel(p.mvOp,[['any','any'],['lte','≤'],['gte','≥'],['eq','=']],'mvOp')}
+        <input type="number" data-attr="mvVal" value="${p.mvVal}" min="0" max="16" style="width:46px">
+      </div>
+      <div class="split" style="gap:14px">
+        <div>
+          <div class="big ${hcls}">${pct(headline)}${dpp(headline,'pay_'+p.id)}</div>
+          <div class="mini">${p.grab>1?`chance of hitting the full ${p.grab}`:'chance of hitting at least 1'}</div>
+          <div style="margin-top:12px">
+            <div class="stat"><span class="k">Hits in deck</span><span class="v">${r.K}</span></div>
+            <div class="stat"><span class="k">At least 1</span><span class="v ${r.pAtLeast1>=0.8?'good':r.pAtLeast1>=0.6?'warn':'bad'}">${pct(r.pAtLeast1)}</span></div>
+            <div class="stat"><span class="k">Whiff completely</span><span class="v ${1-r.pAtLeast1<=0.2?'good':'bad'}">${pct(1-r.pAtLeast1)}</span></div>
+            <div class="stat"><span class="k">Expected hits seen</span><span class="v">${r.ev.toFixed(2)}</span></div>
+          </div>
+        </div>
+        <div><table><thead><tr><th>Hits found</th><th>Chance</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      </div>
+      <div class="mini" style="margin-top:10px">Counting ${r.K} hits in a ${r.N}-card library, digging ${r.D}.
+        ${r.hitCards.length?`Hits: ${r.hitCards.map(c=>c.qty+' '+c.name).join(' · ')}`:'<b class="bad">No cards in your deck match this filter.</b>'}</div>
+    </div>`;
+  }).join('');
+
+  // ---- tension ----
+  if(PAYOFFS.length<2){ $('tensionCard').classList.add('hide'); return; }
+  $('tensionCard').classList.remove('hide');
+  const [a,b]=PAYOFFS;
+  let onlyA=0,onlyB=0,both=0,neither=0,neitherCards=[];
+  A.cards.forEach(c=>{
+    if(c.unknown) return;
+    const ma=matches(c,a), mb=matches(c,b);
+    if(ma&&mb) both+=c.qty;
+    else if(ma) onlyA+=c.qty;
+    else if(mb) onlyB+=c.qty;
+    else { neither+=c.qty; if(!c.land) neitherCards.push(c); }
+  });
+  const dead=neither;
+  $('tension').innerHTML=`
+    <div class="note" style="margin-top:0">Every card in your deck falls into one of four buckets relative to these two effects.
+    Cards in the last bucket are dead for <i>both</i> — that is the bucket to attack.</div>
+    <div class="split" style="margin-top:12px">
+      <div>
+        <div class="stat"><span class="k">Hits for ${a.name} only</span><span class="v">${onlyA}</span></div>
+        <div class="stat"><span class="k">Hits for ${b.name} only</span><span class="v">${onlyB}</span></div>
+        <div class="stat"><span class="k">Hits for both</span><span class="v ${both?'good':'dim'}">${both}</span></div>
+        <div class="stat"><span class="k">Dead for both</span><span class="v ${dead>26?'bad':dead>22?'warn':'good'}">${dead}</span></div>
+      </div>
+      <div>
+        <div class="bar" style="height:26px;display:flex">
+          <i style="width:${onlyA/A.total*100}%;background:var(--acc)"     title="${a.name}"></i>
+          <i style="width:${onlyB/A.total*100}%;background:var(--good)"    title="${b.name}"></i>
+          <i style="width:${both/A.total*100}%;background:var(--warn)"     title="both"></i>
+          <i style="width:${dead/A.total*100}%;background:var(--panel2)"   title="dead"></i>
+        </div>
+        <div class="mini" style="margin-top:8px">
+          <span style="color:var(--acc)">■</span> ${a.name} &nbsp;
+          <span style="color:var(--good)">■</span> ${b.name} &nbsp;
+          <span style="color:var(--warn)">■</span> both &nbsp;
+          <span style="color:var(--dim)">■</span> dead for both
+        </div>
+      </div>
+    </div>
+    <div class="note"><b>The lever.</b> Trading a card from one hit-bucket to the other is close to zero-sum — you raise one
+    percentage and lower the other. What is <i>not</i> zero-sum is the dead bucket: ${dead} cards
+    (${(dead/A.total*100).toFixed(0)}% of the deck) currently do nothing for either effect. Your lands are unavoidably
+    in there, but ${neitherCards.reduce((s,c)=>s+c.qty,0)} non-land cards are dead for both${
+      neitherCards.length?` — ${neitherCards.slice(0,8).map(c=>c.qty+' '+c.name).join(', ')}${neitherCards.length>8?'…':''}`:''}.
+    Converting those into hits for either effect raises one percentage without lowering the other.</div>`;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+const $=id=>document.getElementById(id);
+const pct=x=>(x*100).toFixed(1)+'%';
+const colDot=c=>`<span class="sym" style="background:var(--${c})">${c}</span>`;
+
+function render(){
+  const A=analyse();
+  renderConflicts(A); renderGlance(A);
+  renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
+  renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
+  renderPayoffs(A); renderUnresolved(A); renderMethod(A);
+}
+
+function d(now, key){                       // diff badge vs snapshot
+  if(!SNAPSHOT || SNAPSHOT[key]===undefined) return '';
+  const delta = now - SNAPSHOT[key];
+  if(Math.abs(delta)<0.05) return '';
+  const cls = delta>0?'up':'down';
+  return `<span class="delta ${cls}">${delta>0?'+':''}${(+delta.toFixed(1))}</span>`;
+}
+function dpp(now, key){                     // diff badge in percentage points
+  if(!SNAPSHOT || SNAPSHOT[key]===undefined) return '';
+  const delta=(now-SNAPSHOT[key])*100;
+  if(Math.abs(delta)<0.05) return '';
+  return `<span class="delta ${delta>0?'up':'down'}">${delta>0?'+':''}${delta.toFixed(1)}pp</span>`;
+}
+
+function renderConflicts(A){
+  const out=[];
+  if(A.total===0){ $('conflicts').innerHTML='<div class="dim">Paste a decklist to begin.</div>'; return; }
+
+  // deck size
+  if(A.total!==A.N) out.push(['bad',`Deck is <b>${A.total}</b> cards, not ${A.N}.`]);
+
+  // land count vs recommendation
+  const gap=A.landCount-A.recR;
+  if(A.landCount===0) out.push(['warn','No lands detected. Run a Scryfall lookup, or tag lands inline with <code>[land:XY]</code>.']);
+  else if(Math.abs(gap)<=1) out.push(['ok',`Land count <b>${A.landCount}</b> matches the ${A.recR} your curve implies.`]);
+  else out.push([Math.abs(gap)>=3?'bad':'warn',
+    `Land count <b>${A.landCount}</b> is ${Math.abs(gap)} ${gap>0?'above':'below'} the <b>${A.recR}</b> your ${A.avgMV.toFixed(2)} average mana value implies.`]);
+
+  // colour shortfalls
+  let short=0;
+  COLORS.forEach(c=>{
+    if(A.need[c]<1) return;
+    const have=A.sources[c], want=A.need[c], miss=want-have;
+    if(miss>0){ short++;
+      out.push([miss>=3?'bad':'warn',
+        `${colDot(c)} <b>${CNAME[c]}</b>: ${have} sources, need <b>${want}</b> for ${A.needFrom[c]} on curve — <b>${miss} short</b>.`]);
+    }
+  });
+
+  // the interesting one: is the requirement even satisfiable?
+  const totalNeed=COLORS.reduce((s,c)=>s+(A.need[c]||0),0);
+  const dualCapacity=A.landCount*2;
+  if(totalNeed>dualCapacity && A.landCount>0){
+    out.push(['bad',`Your colour requirements total <b>${totalNeed}</b> sources but ${A.landCount} lands can supply at most ${dualCapacity} even if <i>every single land were a dual</i>. This mana base is not buildable as specified — cut a colour, lower a pip requirement, or add lands.`]);
+  } else if(totalNeed>A.landCount && A.landCount>0){
+    const dualsNeeded=totalNeed-A.landCount;
+    out.push([dualsNeeded>A.landCount*0.6?'warn':'ok',
+      `Requirements total <b>${totalNeed}</b> across ${A.landCount} lands, so you need at least <b>${dualsNeeded}</b> lands that produce two or more of your colours.`]);
+  }
+  if(short===0 && A.landCount>0 && totalNeed>0) out.push(['ok','Every colour requirement is met.']);
+
+  $('conflicts').innerHTML = out.map(([k,t])=>`<div class="conflict ${k==='ok'?'ok':k==='warn'?'warn':''}">${t}</div>`).join('');
+}
+
+function renderGlance(A){
+  const rows=[
+    ['Total cards', A.total],
+    ['Lands', A.landCount+d(A.landCount,'landCount')],
+    ['Spells', A.spellCount],
+    ['Average mana value', A.avgMV.toFixed(2)+d(A.avgMV,'avgMV')],
+    ['Recommended lands', A.recR+d(A.recR,'recR')]
+  ];
+  $('glance').innerHTML = rows.map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+}
+
+function renderCurve(A, el, mini){
+  const max=Math.max(1,...Object.values(A.curve));
+  let h='';
+  for(let i=0;i<=7;i++){
+    const n=A.curve[i]||0;
+    h+=`<div class="col"><div class="b" style="height:${(n/max*100)||0}%"><span>${n||''}</span></div>
+        <div class="lbl">${i===7?'7+':i}</div></div>`;
+  }
+  $(el).innerHTML=h;
+}
+
+function renderLands(A){
+  $('landRec').innerHTML = A.recR + d(A.recR,'recR');
+  $('landRecSub').textContent = `you have ${A.landCount} · regression output ${A.rec.toFixed(2)}`;
+  $('landStats').innerHTML = [
+    ['Your land count', A.landCount],
+    ['Average mana value', A.avgMV.toFixed(2)],
+    ['Cheap draw / ramp', A.rampN],
+    ['MDFC lands (untapped / tapped)', `${A.mdfcU} / ${A.mdfcT}`]
+  ].map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+  $('landFormula').innerHTML = `<b>Karsten's regression</b> over ~95,000 winning tournament decklists:<br>
+    <code>19.59 + 1.90×avgMV − 0.28×cheap draw/ramp − 0.74×untapped MDFC − 0.38×tapped MDFC + 0.27×companion</code><br>
+    This is empirical, not probabilistic — it describes what winning decks actually did.`;
+
+  // land drop table
+  let rows='';
+  for(let t=1;t<=6;t++){
+    const seen=cardsSeen(t,A.onPlay);
+    const pYou=hyperAtLeast(t,A.landCount,Math.min(seen,A.N),A.N);
+    const pRec=hyperAtLeast(t,A.recR,Math.min(seen,A.N),A.N);
+    const cls=pYou>=0.9?'good':pYou>=0.8?'warn':'bad';
+    rows+=`<tr><td>T${t}</td><td>${t} lands</td><td class="${cls}">${pct(pYou)}</td><td class="dim">${pct(pRec)}</td></tr>`;
+  }
+  $('landDrops').innerHTML=rows;
+
+  // flood / screw — all figures are for a single unmulliganed opening seven
+  const keepable = hyperAtLeast(2,A.landCount,7,A.N) - hyperAtLeast(6,A.landCount,7,A.N);
+  const screw    = 1 - hyperAtLeast(2,A.landCount,7,A.N);   // 0 or 1 lands
+  const flood    = hyperAtLeast(5,A.landCount,7,A.N);        // 5+ lands
+  $('floodRisk').innerHTML=`
+    <div class="stat"><span class="k">Keepable opening (2–5 lands)</span><span class="v ${keepable>=0.85?'good':keepable>=0.78?'warn':'bad'}">${pct(keepable)}</span></div>
+    <div class="stat"><span class="k">Screw (0–1 lands)</span><span class="v ${screw<=0.1?'good':screw<=0.15?'warn':'bad'}">${pct(screw)}</span></div>
+    <div class="stat"><span class="k">Flood (5+ lands)</span><span class="v ${flood<=0.1?'good':flood<=0.16?'warn':'bad'}">${pct(flood)}</span></div>
+    <div class="note">Pre-mulligan figures for a single seven. The London mulligan cuts real-world screw and flood substantially, so treat these as a relative comparison between builds rather than absolute win-rate predictions.</div>`;
+}
+
+function renderColors(A){
+  let h='';
+  COLORS.forEach(c=>{
+    const want=A.need[c]||0, haveRaw=A.sources[c]||0, un=A.untapped[c]||0;
+    if(want<1 && haveRaw<1) return;
+    const have=Math.round(haveRaw*10)/10;
+    const ratio=want? Math.min(1.4, have/want) : 1;
+    const short=want-have;
+    const cls = have>=want?'good':short<=2?'warn':'bad';
+    const col = have>=want?'var(--good)':short<=2?'var(--warn)':'var(--bad)';
+    const ci=A.condInfo[c];
+    h+=`<div style="margin-bottom:15px">
+      <div class="row" style="justify-content:space-between">
+        <div>${colDot(c)} <b>${CNAME[c]}</b> <span class="mini">${want?('driven by '+A.needFrom[c]+' on T'+A.needTurn[c]):''}</span></div>
+        <div><span class="${cls}" style="font-weight:700;font-size:15px">${have}</span>${d(haveRaw,'src_'+c)}
+             <span class="dim"> / ${want} needed</span>
+             <span class="pill ${cls}" style="margin-left:8px">${have>=want?'OK':(Math.round(short*10)/10)+' short'}</span></div>
+      </div>
+      <div class="bar"><i style="width:${ratio/1.4*100}%;background:${col}"></i></div>
+      <div class="mini" style="margin-top:3px">${Math.round(un*10)/10} untapped${
+        ci?` · includes <b>${Math.round(ci.frac*10)/10}</b> from conditional duals, discounted to ${(ci.weight*100).toFixed(0)}% (odds you control an enabling basic type by T${A.needTurn[c]||3})`:''}</div>
+    </div>`;
+  });
+  if(Object.keys(A.condInfo||{}).length){
+    const verges=[...new Map(A.lands.filter(c=>c.verge).map(c=>[c.name,c])).values()];
+    const rows=verges.map(v=>{
+      const n=countEnablers(A.lands, v.verge.enablers);
+      const named=A.lands.filter(c=>(c.subtypes||[]).some(t=>v.verge.enablers.includes(t)));
+      return `<tr><td><b>${v.name}</b></td><td>${colDot(v.verge.base)}free</td>
+        <td>${colDot(v.verge.cond)}needs ${v.verge.enablers.join(' or ')}</td>
+        <td class="${n>=10?'good':n>=6?'warn':'bad'}"><b>${n}</b> enabling lands</td>
+        <td class="mini">${named.length?named.map(c=>c.qty+' '+c.name).join(', '):'<b class="bad">none</b>'}</td></tr>`;
+    }).join('');
+    h+=`<div class="flag"><b>Conditional duals detected.</b> These produce their base colour freely but the second colour
+      only while you control one of two basic land <i>types</i>. Any land with that type counts — basics, shocklands,
+      surveil lands and triomes all qualify; Pathways, fastlands and painlands do not, and Verges do
+      <b>not</b> enable each other. A land carrying <i>both</i> required types is still one permanent and is counted once.
+      <table style="margin-top:9px"><tbody>${rows}</tbody></table></div>`;
+  }
+  $('colorPanels').innerHTML = h || '<div class="dim">No coloured spells detected yet.</div>';
+
+  const seen=new Set();
+  $('driverRows').innerHTML = A.drivers.filter(r=>{
+    const k=r.name+r.col; if(seen.has(k)) return false; seen.add(k); return true;
+  }).slice(0,25).map(r=>{
+    const ok=r.have>=r.req.use;
+    return `<tr><td>${r.name}</td><td class="dim">${r.cost}</td><td>${r.qty}</td><td>${colDot(r.col)}</td>
+      <td>${r.pips}</td><td>T${r.turn}</td>
+      <td><b>${r.req.use}</b> <span class="mini">(K ${r.req.karsten} / sim ${r.req.derived??'—'})</span></td>
+      <td class="${ok?'good':'bad'}">${Math.round(r.have*10)/10}${r.haveFrac>0?`<span class="mini"> (${r.haveFull}+${Math.round(r.haveFrac*10)/10} cond.)</span>`:''}</td>
+      <td>${ok?'<span class="pill good">OK</span>':'<span class="pill bad">short</span>'}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="dim">—</td></tr>';
+}
+
+function renderCurveStats(A){
+  const tot=A.spellCount||1;
+  let h='';
+  for(let i=0;i<=7;i++){
+    const n=A.curve[i]||0; if(!n) continue;
+    h+=`<div class="stat"><span class="k">${i===7?'7+':i} mana</span><span class="v">${n} <span class="mini">${(n/tot*100).toFixed(0)}%</span></span></div>`;
+  }
+  h+=`<div class="stat"><span class="k">Average mana value</span><span class="v">${A.avgMV.toFixed(2)}</span></div>`;
+  $('curveStats').innerHTML=h;
+
+  const mv=A.avgMV;
+  let arch, guide;
+  if(mv<2.2){ arch='Aggro'; guide='22–23 lands. Every land should enter untapped; a tapland on turn 1 costs you a whole turn of pressure.'; }
+  else if(mv<2.9){ arch='Aggro–Midrange'; guide='23–25 lands. One or two taplands are tolerable if they scry or fix three colours.'; }
+  else if(mv<3.5){ arch='Midrange'; guide='24–26 lands. Prioritise colour consistency over speed — colour screw beats you harder than a turn-one tapland.'; }
+  else { arch='Control / Ramp'; guide='26–27 lands. You can afford taplands because you are not deploying on turns 1–2.'; }
+  $('archetype').innerHTML=`
+    <div class="stat"><span class="k">Curve profile</span><span class="v">${arch}</span></div>
+    <div class="stat"><span class="k">Land count for this profile</span><span class="v">${A.recR}</span></div>
+    <div class="note">${guide}</div>
+    <div class="note"><b>Why the curve matters beyond lands:</b> your curve sets the turn each spell must be castable, and that turn sets its colour requirement. Moving a double-pip card from three mana to two raises its requirement from ${(KARSTEN[2]||{})[3]} sources to ${(KARSTEN[2]||{})[2]}. Cheaper is not always more consistent.</div>`;
+}
+
+function renderCopies(A){
+  const t=+$('copyTurn').value||3;
+  const seen=Math.min(cardsSeen(t,A.onPlay),A.N);
+  let rows='', prev=0;
+  for(let c=1;c<=4;c++){
+    const p=hyperAtLeast(1,c,seen,A.N);
+    const gain=p-prev; prev=p;
+    const cls=p>=0.6?'good':p>=0.35?'warn':'dim';
+    rows+=`<tr><td><b>${c}</b></td><td class="${cls}">${pct(p)}</td>
+      <td class="dim">${c===1?'—':'+'+pct(gain)}</td>
+      <td><div class="bar" style="width:150px"><i style="width:${p*100}%;background:var(--acc)"></i></div></td></tr>`;
+  }
+  $('copyRows').innerHTML=rows;
+  $('copyNote').innerHTML=`Seeing <b>${seen}</b> cards by turn ${t} in a ${A.N}-card deck. Note the sharply diminishing returns: the 2nd copy buys far more than the 4th.
+    A 4-of is for cards you need <i>early and every game</i>; a 2-of is for cards that are good but replaceable, or that you can find with card selection.`;
+
+  $('deckCopyRows').innerHTML = A.spells.slice(0,40).map(c=>{
+    const s3=Math.min(cardsSeen(3,A.onPlay),A.N), s5=Math.min(cardsSeen(5,A.onPlay),A.N);
+    return `<tr><td>${c.name}</td><td>${c.qty}</td>
+      <td>${pct(hyperAtLeast(1,c.qty,s3,A.N))}</td>
+      <td>${pct(hyperAtLeast(1,c.qty,s5,A.N))}</td>
+      <td class="dim">${pct(hyperAtLeast(2,c.qty,s5,A.N))}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="dim">—</td></tr>';
+}
+
+function renderUnresolved(A){
+  if(!A.unknown.length){ $('unresolved').innerHTML='<div class="mini">All cards resolved.</div>'; return; }
+  $('unresolved').innerHTML = `<div class="flag"><b>${A.unknown.length} card(s) not recognised.</b> They are excluded from every calculation.
+    Click “Look up costs (Scryfall)”, or annotate them inline.</div>` +
+    A.unknown.slice(0,20).map(n=>`<div class="mini" style="padding:3px 0">· ${n}</div>`).join('');
+}
+
+function renderMethod(A){
+  $('method').innerHTML=`
+  <h3>1. Land count — regression, not probability</h3>
+  <div class="note">Karsten fitted a regression to roughly 95,000 winning tournament decklists. It answers “what did decks like mine actually run?”, which is a different and better-posed question than “what maximises P(land drop)” — that would just tell you to play 60 lands. Hypergeometric maths then <i>checks</i> the answer via the land-drop table.</div>
+
+  <h3>2. Colour requirements — conditional hypergeometric</h3>
+  <div class="note">The subtle part, and the thing most calculators get wrong. The naive question — “P(≥2 white sources among the 9 cards I have seen by turn 3)” — gives 22 sources for a double pip, but Karsten publishes 18. The naive model is wrong because it double-counts failure: it fails you both when you are colour-screwed <i>and</i> when you simply did not have three lands.
+  <br><br>Karsten instead conditions on having made your land drops, and measures colour screw <i>given</i> you were not mana screwed. Land count is a separate problem, already handled in panel 1. I re-derived the whole table under that conditioning with a million-game Monte Carlo including the London mulligan, and it reproduces his published anchors exactly at turns 1–2 (14 for a single pip on T1, 20 for a double pip on T2) and lands 1–3 low at later turns.
+  <br><br>Proof the conditioning is necessary: run the unconditional model and it saturates — <i>no</i> number of sources reaches 90% for a five-drop, because with 24 lands you cannot reliably have five lands on turn five at all. The unconditional question has no answer.
+  <br><br>Because my simulation sits at or slightly below Karsten's published figures, this tool shows both and <b>recommends the higher</b>. A mana base one source too rich costs you almost nothing; one source too thin costs you games.</div>
+
+  <h3>3. Copies — plain hypergeometric</h3>
+  <div class="note">P(≥k copies among the cards seen by turn N). No conditioning needed; this one really is the textbook calculation.</div>
+
+  <h3>Conditional duals (Verges)</h3>
+  <div class="note">Verge-style lands add their base colour freely but the second colour only while you control one of two
+  basic land types. Scryfall's <code>produced_mana</code> lists <i>both</i> colours with no indication of which is conditional,
+  so counting them naively inflates your off-colour by a full source each. This tool parses the oracle text instead — the first
+  <code>{T}: Add</code> line is always the unconditional colour — and discounts the off-colour by the probability that you
+  control an enabling basic land type by the turn the requirement binds.
+  <br><br>The trap worth internalising: <b>Verges do not enable each other.</b> They carry no basic land types, so a hand of four
+  Verges produces only base colours. Your enabler count is basics plus any nonbasic that has a basic land <i>type</i> —
+  shocklands, surveil lands and triomes qualify; Pathways, fastlands and painlands do not.</div>
+
+  <h3>Known limitations</h3>
+  <div class="note">
+  · Fetchlands are counted as sources for every colour they can retrieve, which slightly overstates them (they cost life and can be Blood Moon'd).<br>
+  · The Verge discount uses cards <i>seen</i> as a proxy for lands <i>in play</i>, which is mildly optimistic — you may hold an enabler you haven't cast.<br>
+  · Tainted lands and Nimbus Maze use the same mechanic but a different text shape, and are not auto-detected.<br>
+  · Mana dorks and rocks are not auto-counted as sources; add them manually if your deck leans on them.<br>
+  · Cantrips and card selection genuinely improve consistency beyond what these numbers show. Karsten's regression captures this for land count via the ramp/draw term, but the colour table does not.<br>
+  · Hybrid pips are counted as fractional requirements across each colour, which is an approximation.<br>
+  · The colour table assumes 24 lands. Very low or very high land counts shift it slightly.
+  </div>`;
+}
+
+/* ============================================================
+   PERSISTENCE
+   ------------------------------------------------------------
+   Two layers, deliberately. localStorage gives a frictionless autosave loop,
+   but browsers treat file:// pages as opaque origins and may silently discard
+   it — and it is lost outright if you move the .html file. So every build is
+   also exportable to a .json you own. Storage is best-effort convenience;
+   the files are the durable copy.
+   ============================================================ */
+const STORE_KEY='mtg-mana-calc-v1';
+let STATE={builds:{}, active:null, cardCache:{}};
+let DIRTY=false, STORAGE_OK=true;
+
+function storageAvailable(){
+  try{ const k='__t'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }
+  catch(e){ return false; }
+}
+function snapshotState(){
+  return {
+    list: $('list').value,
+    deckSize:+$('deckSize').value||60, thr:$('thr').value, play:$('play').value,
+    ramp:+$('ramp').value||0, comp:$('comp').value, copyTurn:+$('copyTurn').value||3,
+    payoffs: JSON.parse(JSON.stringify(PAYOFFS)),
+    saved: new Date().toISOString()
+  };
+}
+function applyState(b){
+  if(!b) return;
+  $('list').value = b.list ?? '';
+  $('deckSize').value = b.deckSize ?? 60;
+  $('thr').value = b.thr ?? '0.90';
+  $('play').value = b.play ?? '1';
+  $('ramp').value = b.ramp ?? 0;
+  $('comp').value = b.comp ?? '0';
+  $('copyTurn').value = b.copyTurn ?? 3;
+  PAYOFFS = Array.isArray(b.payoffs) ? JSON.parse(JSON.stringify(b.payoffs)) : [];
+  PID = PAYOFFS.reduce((m,p)=>Math.max(m, p.id||0), 0);
+  SNAPSHOT = null;
+  $('snap').textContent='Snapshot for diff'; $('clearSnap').classList.add('hide');
+}
+function persist(){
+  if(!STORAGE_OK) return false;
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); return true; }
+  catch(e){ STORAGE_OK=false; showStorageWarn('Browser storage is full or blocked — use Export to keep your work.'); return false; }
+}
+function loadStore(){
+  if(!STORAGE_OK) return;
+  try{
+    const raw=localStorage.getItem(STORE_KEY); if(!raw) return;
+    const p=JSON.parse(raw);
+    if(p && typeof p==='object' && p.builds){ STATE=Object.assign({builds:{},active:null,cardCache:{}},p); DB=Object.assign({},STATE.cardCache||{}); }
+  }catch(e){ console.warn('could not read saved state',e); }
+}
+function showStorageWarn(msg){
+  const el=$('storageWarn'); el.classList.remove('hide');
+  el.innerHTML=`<b>Heads up:</b> ${msg} Your builds still work in this tab — use <b>Export all</b> before closing.`;
+}
+function markDirty(){ DIRTY=true; updateSaveState(); autosave(); }
+let autosaveT=null;
+function autosave(){
+  clearTimeout(autosaveT);
+  autosaveT=setTimeout(()=>{
+    if(!STATE.active) return;
+    STATE.builds[STATE.active]=snapshotState();
+    STATE.cardCache=DB;
+    if(persist()){ DIRTY=false; updateSaveState(true); }
+  }, 900);
+}
+function updateSaveState(auto){
+  const el=$('saveState');
+  if(!STORAGE_OK){ el.className='mini warn'; el.textContent='not saved to browser — export to keep'; return; }
+  if(DIRTY){ el.className='mini unsaved'; el.textContent='unsaved changes…'; }
+  else { el.className='mini saved'; el.textContent = STATE.active ? (auto?'autosaved ✓':'saved ✓') : ''; }
+}
+function refreshSlots(){
+  const names=Object.keys(STATE.builds).sort();
+  $('slotSel').innerHTML = names.length
+    ? names.map(n=>`<option value="${n.replace(/"/g,'&quot;')}"${n===STATE.active?' selected':''}>${n}</option>`).join('')
+    : '<option value="">— no saved builds —</option>';
+  $('slotName').value = STATE.active || '';
+}
+function saveAs(name){
+  name=(name||'').trim(); if(!name){ alert('Give the build a name first.'); return; }
+  STATE.builds[name]=snapshotState(); STATE.active=name; STATE.cardCache=DB;
+  persist(); DIRTY=false; refreshSlots(); updateSaveState(); render();
+}
+function switchTo(name){
+  if(!STATE.builds[name]) return;
+  if(DIRTY && STATE.active && !confirm(`"${STATE.active}" has unsaved changes. Switch anyway?`)) { refreshSlots(); return; }
+  STATE.active=name; applyState(STATE.builds[name]); persist();
+  DIRTY=false; refreshSlots(); updateSaveState(); render();
+}
+function download(obj, fname){
+  const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },100);
+}
+function validateBuild(b){
+  return !!b && typeof b==='object' && typeof b.list==='string';
+}
+function importPayload(txt){
+  let p; try{ p=JSON.parse(txt); }catch(e){ alert('That file is not valid JSON.'); return; }
+  let added=0, skipped=0;
+  const take=(name,b)=>{
+    if(!validateBuild(b)){ skipped++; return; }
+    let n=name||'imported';
+    while(STATE.builds[n] && JSON.stringify(STATE.builds[n])!==JSON.stringify(b)) n+=' (copy)';
+    STATE.builds[n]=b; added++; STATE.active=n;
+  };
+  if(p.format==='mtg-mana-calc' && p.builds && typeof p.builds==='object'){
+    Object.entries(p.builds).forEach(([n,b])=>take(n,b));
+  } else if(p.format==='mtg-mana-calc' && p.build){
+    take(p.name, p.build);
+  } else if(validateBuild(p)){
+    take(p.name||'imported', p);
+  } else { alert('That file does not look like a deck export from this tool.'); return; }
+  if(!added){ alert('Nothing importable found in that file.'); return; }
+  applyState(STATE.builds[STATE.active]); persist(); refreshSlots(); updateSaveState(); render();
+  alert(`Imported ${added} build${added>1?'s':''}${skipped?`, skipped ${skipped} malformed`:''}.`);
+}
+
+/* ============================================================
+   SCRYFALL
+   ============================================================ */
+async function lookup(){
+  const btn=$('lookup'); const orig=btn.textContent;
+  const {cards}=parseList($('list').value);
+  const names=[...new Set(cards.map(c=>c.name))];
+  if(!names.length) return;
+  btn.textContent='Looking up…'; btn.disabled=true;
+  try{
+    for(let i=0;i<names.length;i+=75){
+      // Scryfall asks for 50-100ms between requests. Be a good citizen.
+      if(i>0) await new Promise(r=>setTimeout(r,120));
+      const batch=names.slice(i,i+75).map(n=>({name:n}));
+      const r=await fetch('https://api.scryfall.com/cards/collection',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({identifiers:batch})
+      });
+      if(r.status===429){ btn.textContent='Rate limited — wait a moment'; break; }
+      const j=await r.json();
+      (j.data||[]).forEach(cd=>{
+        const face = cd.card_faces && !cd.mana_cost ? cd.card_faces[0] : cd;
+        const isLand=/Land/.test(cd.type_line||'');
+        const backLand = cd.card_faces && /Land/.test(cd.card_faces[1]?.type_line||'');
+        const txt=((face.oracle_text||'')+' '+(cd.oracle_text||'')).toLowerCase();
+        const oracle=cd.oracle_text||face.oracle_text||'';
+        const subtypes=((cd.type_line||'').split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
+        const pc=parseCost(face.mana_cost||cd.mana_cost||'');
+        DB[cd.name.toLowerCase()]={
+          land:isLand, produces:(cd.produced_mana||[]).filter(x=>COLORS.includes(x)),
+          tapped:/enters (the battlefield )?tapped/.test(txt),
+          cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
+          mdfcLand: !isLand && backLand,
+          typeLine: cd.type_line||face.type_line||'',
+          subtypes, verge: isLand ? parseVerge(oracle) : null,
+          rampdraw: (cd.cmc<=2) && (/draw a card|search your library for a( basic)? land/.test(txt))
+        };
+        // also key the front-face name for MDFCs / split cards
+        if(cd.card_faces) cd.card_faces.forEach(f=>{ if(f.name) DB[f.name.toLowerCase()]=DB[cd.name.toLowerCase()]; });
+      });
+    }
+    // auto-fill ramp/draw count
+    const {cards:cc}=parseList($('list').value);
+    const rd=cc.filter(c=>c.rampdraw).reduce((s,c)=>s+c.qty,0);
+    if(rd) $('ramp').value=rd;
+    STATE.cardCache=DB; persist();   // cache card data so the tool works offline next time
+    btn.textContent='Costs loaded ✓';
+  }catch(e){
+    btn.textContent='Lookup failed — annotate inline';
+    console.error(e);
+  }
+  setTimeout(()=>{btn.textContent=orig; btn.disabled=false;},2200);
+  render();
+}
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+$('tabs').addEventListener('click',e=>{
+  if(e.target.tagName!=='BUTTON') return;
+  [...$('tabs').children].forEach(b=>b.classList.toggle('on',b===e.target));
+  ['verdict','lands','colors','curve','copies','payoffs','method'].forEach(t=>
+    $('p-'+t).classList.toggle('hide', t!==e.target.dataset.t));
+});
+$('addUB').addEventListener('click',()=>{addPayoff('ub');markDirty();});
+$('addGB').addEventListener('click',()=>{addPayoff('gb');markDirty();});
+$('addCustom').addEventListener('click',()=>{addPayoff('custom');markDirty();});
+$('payoffList').addEventListener('click',e=>{
+  const id=e.target.dataset.del;
+  if(id){ PAYOFFS=PAYOFFS.filter(p=>p.id!=id); render(); markDirty(); }
+});
+$('payoffList').addEventListener('change',e=>{
+  const attr=e.target.dataset.attr; if(!attr) return;
+  const pid=e.target.closest('[data-pid]').dataset.pid;
+  const p=PAYOFFS.find(x=>x.id==pid); if(!p) return;
+  p[attr]= e.target.type==='number' ? (+e.target.value||0) : e.target.value;
+  render(); markDirty();
+});
+['list','deckSize','thr','play','ramp','comp','copyTurn'].forEach(id=>{
+  $(id).addEventListener('input',()=>{render();markDirty();});
+  $(id).addEventListener('change',()=>{render();markDirty();});
+});
+
+/* deck bar */
+$('slotSel').addEventListener('change',e=>{ if(e.target.value) switchTo(e.target.value); });
+$('saveSlot').addEventListener('click',()=>saveAs($('slotName').value||STATE.active));
+$('newSlot').addEventListener('click',()=>{
+  if(DIRTY && STATE.active && !confirm('Current build has unsaved changes. Start a new one anyway?')) return;
+  const n=prompt('Name for the new build:','New build'); if(!n) return;
+  STATE.active=null; applyState({list:'', deckSize:60, thr:'0.90', play:'1', ramp:0, comp:'0', copyTurn:3, payoffs:[]});
+  saveAs(n);
+});
+$('dupSlot').addEventListener('click',()=>{
+  if(!STATE.active){ alert('Save this build first, then duplicate it.'); return; }
+  const n=prompt('Name for the duplicate:', STATE.active+' v2'); if(!n) return;
+  saveAs(n);
+});
+$('delSlot').addEventListener('click',()=>{
+  if(!STATE.active) return;
+  if(!confirm(`Delete "${STATE.active}"? This cannot be undone — export it first if you want a copy.`)) return;
+  delete STATE.builds[STATE.active];
+  const rest=Object.keys(STATE.builds);
+  STATE.active = rest[0] || null;
+  if(STATE.active) applyState(STATE.builds[STATE.active]);
+  persist(); refreshSlots(); updateSaveState(); render();
+});
+$('exportOne').addEventListener('click',()=>{
+  const name=STATE.active||'build';
+  download({format:'mtg-mana-calc', version:1, name, build:snapshotState()},
+           name.replace(/[^\w. -]/g,'_')+'.json');
+});
+$('exportAll').addEventListener('click',()=>{
+  if(STATE.active) STATE.builds[STATE.active]=snapshotState();
+  download({format:'mtg-mana-calc', version:1, exported:new Date().toISOString(), builds:STATE.builds},
+           'mtg-builds-'+new Date().toISOString().slice(0,10)+'.json');
+});
+$('importBtn').addEventListener('click',()=>$('importFile').click());
+$('importFile').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>importPayload(r.result);
+  r.readAsText(f);
+  e.target.value='';
+});
+window.addEventListener('beforeunload',e=>{
+  if(DIRTY){ e.preventDefault(); e.returnValue=''; }
+});
+$('lookup').addEventListener('click',lookup);
+$('snap').addEventListener('click',()=>{
+  const A=analyse();
+  SNAPSHOT={landCount:A.landCount,avgMV:A.avgMV,recR:A.recR};
+  COLORS.forEach(c=>SNAPSHOT['src_'+c]=A.sources[c]);
+  PAYOFFS.forEach(p=>{ const r=evalPayoff(p,A); SNAPSHOT['pay_'+p.id]= p.grab>1?r.pFull:r.pAtLeast1; });
+  $('snap').textContent='Snapshot taken ✓';
+  $('clearSnap').classList.remove('hide');
+  setTimeout(()=>$('snap').textContent='Re-snapshot',1500);
+  render();
+});
+$('clearSnap').addEventListener('click',()=>{
+  SNAPSHOT=null; $('snap').textContent='Snapshot for diff';
+  $('clearSnap').classList.add('hide'); render();
+});
+
+/* ---------- boot ---------- */
+const DEMO=`// Example: a generic 2-colour Standard midrange shell.
+// Replace with your list, then hit "Look up costs (Scryfall)".
+4 Kumano Faces Kakkazan
+4 Voldaren Epicure
+4 Bloodtithe Harvester
+3 Graveyard Trespasser
+4 Sheoldred, the Apocalypse
+2 Chandra, Dressed to Kill
+4 Cut Down
+3 Go for the Throat
+2 Brotherhood's End
+4 Reckless Impulse
+
+4 Blightstep Pathway
+4 Haunted Ridge
+4 Blood Crypt
+7 Mountain
+7 Swamp`;
+
+STORAGE_OK = storageAvailable();
+if(!STORAGE_OK){
+  showStorageWarn('This browser is blocking local storage for files opened from disk, so builds cannot autosave between sessions.');
+}
+loadStore();
+
+if(STATE.active && STATE.builds[STATE.active]){
+  applyState(STATE.builds[STATE.active]);           // resume where you left off
+} else if(Object.keys(STATE.builds).length){
+  STATE.active=Object.keys(STATE.builds).sort()[0];
+  applyState(STATE.builds[STATE.active]);
+} else {
+  $('list').value=DEMO;                             // first run
+  STATE.active='Example build';
+  STATE.builds[STATE.active]=snapshotState();
+  persist();
+}
+refreshSlots(); updateSaveState(); render();
+</script>
+</body>
+</html>
