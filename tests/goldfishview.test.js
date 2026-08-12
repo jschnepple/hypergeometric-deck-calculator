@@ -165,13 +165,16 @@ group('gfDrillHTML');
   chk('has a way back', html.includes('id="gfBack"'));
   chk('has a draw button', html.includes('id="gfDraw"'));
   chk('has a play/draw toggle', html.includes('id="gfToggle"'));
-  chk('reset is disabled before any draw', /id="gfReset" disabled/.test(html));
-  chk('shows the seed in hex', /seed <code>[0-9a-f]{8}<\/code>/.test(html));
+  chk('reset is disabled before any draw', /id="gfReset"[^>]*\sdisabled/.test(html));
+  chk('shows the seed in hex', /<code>[0-9a-f]{8}<\/code>/.test(html));
   eq('seven cards in the opening hand', (html.match(/class="gfcard/g) || []).length, 7);
   chk('shows the score breakdown', html.includes('gfbreak'));
   eq('all five components are itemised', (html.match(/class="lb"/g) || []).length, 5);
-  chk('library table is present', html.includes('Still in the library'));
-  chk('library size is stated', /Still in the library — 53 cards/.test(html));
+  chk('library table is present', html.includes('Library —'));
+  chk('library size is stated', /Library — 53 cards/.test(html));
+  chk('the toolbar is sticky, not a scrolled card', html.includes('class="gfbar"'));
+  chk('hand and library sit side by side', html.includes('class="gfwork"'));
+  chk('the library scrolls inside itself', html.includes('class="gfscroll"'));
   chk('explains where the numbers come from', /never from the shuffled order/.test(html));
 }
 
@@ -181,20 +184,21 @@ group('gfDrillHTML — drawing');
   GF.drill = 0;
   const inst = GF.scored[0].inst;
   const before = gfDrillHTML();
-  chk('starts at 7 cards seen', /<div class="big">7<\/div>\s*<div class="mini">cards seen/.test(before));
+  const seenIn = h => (h.match(/<span class="n">(\d+)<\/span><span class="u">seen<\/span>/) || [])[1];
+  eq('starts at 7 cards seen', seenIn(before), '7');
 
   drawOne(inst, deck);
   const after = gfDrillHTML();
   clean('still renders cleanly after a draw', after);
   eq('an eighth card appears', (after.match(/class="gfcard/g) || []).length, 8);
   chk('the new card is marked', after.includes('gfcard') && / new"/.test(after));
-  chk('cards seen advanced to 8', /<div class="big">8<\/div>\s*<div class="mini">cards seen/.test(after));
-  chk('library fell to 52', /Still in the library — 52 cards/.test(after));
-  chk('reset is now enabled', !/id="gfReset" disabled/.test(after));
+  eq('cards seen advanced to 8', seenIn(after), '8');
+  chk('library fell to 52', /Library — 52 cards/.test(after));
+  chk('reset is now enabled', !/id="gfReset"[^>]*\sdisabled/.test(after));
 
   /* The opening-hand SCORE must not move as you draw — it rates the seven you
      were dealt. The probabilities are what move. */
-  const scoreOf = h => (h.match(/class="big" style="color:var\(--\w+\)">(\d+)</) || [])[1];
+  const scoreOf = h => (h.match(/class="n" style="color:var\(--\w+\)">(\d+)</) || [])[1];
   eq('the hand score does not change when you draw', scoreOf(after), scoreOf(before));
 
   // Draw the library dry; the Draw button must switch off rather than error.
@@ -202,8 +206,63 @@ group('gfDrillHTML — drawing');
   while (libraryState(inst, deck).size > 0 && guard++ < 100) drawOne(inst, deck);
   const empty = gfDrillHTML();
   clean('renders cleanly with an empty library', empty);
-  chk('draw is disabled at an empty library', /id="gfDraw" disabled/.test(empty));
-  chk('library reports zero', /Still in the library — 0 cards/.test(empty));
+  chk('draw is disabled at an empty library', /id="gfDraw"[^>]*\sdisabled/.test(empty));
+  chk('library reports zero', /Library — 0 cards/.test(empty));
+
+  inst.drawn = 0; inst.hand = inst.order.slice(0, inst.handSize);
+}
+
+group('draw deltas');
+
+{
+  /* The point of drawing one card at a time is what MOVED. These assert that the
+     snapshot is taken before the draw, that the chips reflect real movement, and
+     that they are cleared whenever comparing would be meaningless. */
+  seedGF();
+  GF.drill = 0; GF.prev = null; GF.onPlay = true;
+  const inst = GF.scored[0].inst;
+  inst.drawn = 0; inst.hand = inst.order.slice(0, inst.handSize);
+
+  chk('no chips before anything has been drawn', !/class="gfd /.test(gfDrillHTML()));
+
+  // Draw the way the click handler does: snapshot first, then advance.
+  GF.prev = gfSnapshotOdds();
+  chk('the snapshot covers hand and library', GF.prev.size > 5, `${GF.prev.size} entries`);
+  drawOne(inst, deck);
+  const html = gfDrillHTML();
+  clean('renders cleanly with deltas', html);
+  chk('a draw produces movement chips', /class="gfd (up|dn)"/.test(html));
+  chk('the note mentions the chips', /what your last draw changed/.test(html));
+  chk('moved rows are marked', /<tr class="moved">/.test(html));
+
+  // Every chip must be a signed integer percentage, never a raw float or NaN.
+  const chips = html.match(/class="gfd (?:up|dn)">([^<]+)</g) || [];
+  chk('chips are well formed', chips.length > 0 && chips.every(c => /[+−]\d+</.test(c)),
+      JSON.stringify(chips.slice(0, 5)));
+
+  /* Direction must be real. Drawing a land can only help a spell that needs
+     lands, so no spell's on-curve chance should fall after drawing one. */
+  const drawnCard = inst.order[inst.handSize];
+  if (drawnCard.land) {
+    const ctx = Object.assign({}, GF.ctx, { onPlay: true });
+    let anyFell = false;
+    for (const [c] of libraryState(inst, deck).counts) {
+      if (c.land || !GF.prev.has(c)) continue;
+      if (onCurve(c, inst, deck, ctx).p < GF.prev.get(c) - 1e-9) anyFell = true;
+    }
+    chk('after drawing a land, no spell got worse', !anyFell);
+  } else {
+    chk('after drawing a land, no spell got worse (land drawn)', true, 'drew a spell this seed');
+  }
+
+  // Sub-half-point noise is suppressed rather than rendered as "+0".
+  eq('a negligible move renders nothing', gfDeltaHTML(deck[0], GF.prev.get(deck[0]) + 0.001), '');
+  chk('an unknown card renders nothing', gfDeltaHTML({ name: 'ghost' }, 0.5) === '');
+
+  // Clearing rules.
+  GF.prev = null;
+  chk('cleared state renders no chips', !/class="gfd /.test(gfDrillHTML()));
+  chk('…and drops the note about them', !/what your last draw changed/.test(gfDrillHTML()));
 
   inst.drawn = 0; inst.hand = inst.order.slice(0, inst.handSize);
 }
@@ -221,7 +280,7 @@ group('gfDrillHTML — play vs draw');
   clean('on-the-draw view renders cleanly', draw);
   chk('the toggle reflects the mode', play.includes('>On the play<') && draw.includes('>On the draw<'));
   chk('turn readout differs between them', play !== draw);
-  chk('on the draw, turn 0 reads as the opening hand', /opening hand/.test(draw));
+  chk('on the draw, turn 0 is labelled pre-turn', /pre-turn/.test(draw));
 }
 
 group('gfDrillHTML — dead cards are flagged');

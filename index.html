@@ -231,23 +231,76 @@ code{background:rgba(255,255,255,.075);padding:1px 5px;border-radius:var(--r1);f
 .gfbands b{display:block;font-size:11.5px;font-weight:650;margin-bottom:1px}
 .gflab{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim)}
 .gfhand{display:flex;gap:var(--s2);flex-wrap:wrap;margin:var(--s3) 0}
-.gfcard{flex:none;width:108px;min-height:132px;padding:var(--s3);border-radius:var(--r2);
+.gfcard{flex:none;width:106px;min-height:124px;padding:10px;border-radius:var(--r2);
   border:1px solid var(--edge);background:var(--panel2);display:flex;flex-direction:column;
-  justify-content:space-between;gap:var(--s2);position:relative;overflow:hidden}
-.gfcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--dim2)}
+  justify-content:space-between;gap:var(--s2);position:relative;cursor:help;
+  transition:transform var(--d-fast) var(--ease-out),border-color var(--d-fast) var(--ease-out)}
+/* NO overflow:hidden here. It clipped the card's own ::after tooltip out of
+   existence. The colour bar gets its own radius instead. */
+.gfcard:hover{transform:translateY(-2px);border-color:var(--edge-str);z-index:20}
+.gfcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--dim2);
+  border-radius:var(--r2) 0 0 var(--r2)}
 .gfcard.land::before{background:var(--good)}
 .gfcard.dead::before{background:var(--bad)}
+.gfcard.dead{opacity:.62}
 .gfcard b{font-size:11px;line-height:1.32;font-weight:650;word-break:break-word}
 .gfcard .mv{font-size:10.5px;color:var(--dim2);margin-top:2px}
-.gfcard .pv{font-size:15px;font-weight:680;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.gfcard .pv{font-size:16px;font-weight:680;font-variant-numeric:tabular-nums;letter-spacing:-.025em}
 .gfcard .pl{font-size:9.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em}
-.gfcard.new{border-color:var(--acc);box-shadow:0 0 0 1px rgba(122,178,255,.35)}
-.gfrow{display:grid;grid-template-columns:56px 1fr auto auto;gap:var(--s3);align-items:center;
-  padding:var(--s2) var(--s3);border-radius:var(--r1);border:1px solid transparent;
+.gfcard.new{border-color:var(--acc);box-shadow:0 0 0 1px rgba(112,178,255,.35)}
+/* The tooltip is how the per-card factor breakdown got out of its own table. */
+.gfcard::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 7px);
+  width:236px;padding:9px 11px;border-radius:var(--r2);z-index:30;
+  background:#11161d;border:1px solid var(--edge-str);box-shadow:var(--sh2);
+  color:var(--dim);font-size:10.5px;line-height:1.6;font-weight:400;white-space:pre-line;
+  font-variant-numeric:tabular-nums;
+  pointer-events:none;opacity:0;visibility:hidden;transform:translateX(-50%) translateY(-3px);
+  transition:opacity var(--d-fast) var(--ease-out),transform var(--d-fast) var(--ease-out),visibility var(--d-fast)}
+.gfcard:hover::after{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.gfrow{display:grid;grid-template-columns:46px 1fr auto auto;gap:var(--s3);align-items:center;
+  padding:7px var(--s3);border-radius:var(--r1);border:1px solid transparent;
   cursor:pointer;font-size:11.5px}
-.gfrow:hover{background:rgba(255,255,255,.05);border-color:var(--edge)}
+.gfrow:hover{background:rgba(255,255,255,.06);border-color:var(--edge)}
+.gfrow:hover .nm{color:var(--tx)}
 .gfrow .sd{color:var(--dim2);font-variant-numeric:tabular-nums;font-size:10.5px}
-.gfrow .nm{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gfrow .nm{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  transition:color var(--d-fast) var(--ease-out)}
+
+/* ---- the drill workspace -------------------------------------------------
+
+   The rule this layout exists to satisfy: pressing Draw must never move the
+   thing you are trying to watch. So the toolbar is sticky, the two columns are
+   fixed to the viewport height, and each column scrolls INSIDE itself. The page
+   itself does not scroll while you are drilled in. */
+.gfwork{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+  gap:var(--s4);align-items:start}
+@media(max-width:1240px){.gfwork{grid-template-columns:1fr}}
+.gfbar{position:sticky;top:var(--s2);z-index:12;display:flex;align-items:center;
+  justify-content:space-between;gap:var(--s3);flex-wrap:wrap;
+  padding:var(--s3) var(--s4);margin-bottom:var(--s4);border-radius:var(--r3);
+  background:var(--g2);border:1px solid var(--edge-str);box-shadow:var(--sh2);
+  backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%)}
+.gfmeter{display:flex;align-items:baseline;gap:var(--s2)}
+.gfmeter .n{font-size:22px;font-weight:680;font-variant-numeric:tabular-nums;letter-spacing:-.025em;line-height:1}
+.gfmeter .u{font-size:10.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.07em}
+.gfpanel{display:flex;flex-direction:column;min-height:0}
+.gfscroll{overflow-y:auto;overscroll-behavior:contain;max-height:calc(100vh - 250px)}
+/* Once the columns stack there is nothing to keep level with, and two tall
+   inner scrollers inside a scrolling page is the worst of both. Let them size
+   naturally; the sticky toolbar still keeps Draw in reach. */
+@media(max-width:1240px){.gfscroll{max-height:none;overflow-y:visible}}
+.gfscroll::-webkit-scrollbar{width:9px}
+.gfscroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.11);border-radius:var(--rp);
+  border:2px solid transparent;background-clip:content-box}
+.gfscroll::-webkit-scrollbar-track{background:transparent}
+.gfscroll table thead th{position:sticky;top:0;z-index:2;background:#141a22}
+
+/* Delta chips — the point of drawing one card at a time is what MOVED. */
+.gfd{font-size:9.5px;font-weight:650;margin-left:5px;font-variant-numeric:tabular-nums;
+  padding:1px 4px;border-radius:var(--rp);white-space:nowrap}
+.gfd.up{background:rgba(88,202,115,.16);color:var(--good)}
+.gfd.dn{background:rgba(255,138,130,.15);color:var(--bad)}
+tr.moved td{background:rgba(112,178,255,.055)}
 .gfhist{display:flex;align-items:flex-end;gap:4px;height:74px;margin-top:var(--s3)}
 .gfhist>div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%}
 .gfhist i{display:block;width:100%;border-radius:var(--r1) var(--r1) 0 0;background:var(--acc);opacity:.55;min-height:2px}
@@ -1619,7 +1672,7 @@ function bulkStats(scored){
 /* Goldfish session state. Lives here rather than in RENDER because it is state,
    not markup, and because the view builders below must be reachable by tests. */
 const GF = {deck:null, ctx:null, scored:[], stats:null, drill:null, onPlay:true,
-            errors:null, stale:false, shown:100};
+            errors:null, stale:false, shown:100, prev:null};
 
 /* ---- goldfish view builders ----------------------------------------------
    Pure string builders, deliberately kept OUT of RENDER so tests/extract.js
@@ -1711,32 +1764,67 @@ function gfBulkHTML(){
        <span class="mini">${GF.shown} of ${GF.scored.length} shown — all ${GF.scored.length} are in the figures above</span></div>` : '';
 
   return `
-  <div class="card">
-    <h2>Across ${s.count} hands</h2>
-    <div class="row" style="gap:var(--s6);align-items:flex-start;flex-wrap:wrap">
-      <div><div class="big">${gpc(s.shipPlay)}</div><div class="mini">shipped on the play</div></div>
-      <div><div class="big">${gpc(s.shipDraw)}</div><div class="mini">shipped on the draw</div></div>
-      <div><div class="big">${s.meanPlay.toFixed(1)}</div><div class="mini">mean score, on the play</div></div>
-      <div><div class="big">${s.meanDraw.toFixed(1)}</div><div class="mini">mean score, on the draw</div></div>
+  <div class="gfwork">
+    <div class="gfpanel">
+      <div class="card">
+        <h2>Across ${s.count} hands</h2>
+        <div class="row" style="gap:var(--s6);align-items:flex-start;flex-wrap:wrap">
+          <div><div class="big">${gpc(s.shipPlay)}</div>
+            <div class="mini tip" tabindex="0" data-tip="Share of opening sevens scoring below ${ctx.keepPlay} — the hands you would send back when you are on the play.">shipped on the play</div></div>
+          <div><div class="big">${gpc(s.shipDraw)}</div>
+            <div class="mini tip" tabindex="0" data-tip="Share scoring below ${ctx.keepDraw}. Lower than the play column because the eighth card rescues hands that are one land short.">shipped on the draw</div></div>
+          <div><div class="big">${s.meanPlay.toFixed(1)}</div><div class="mini">mean score, play</div></div>
+          <div><div class="big">${s.meanDraw.toFixed(1)}</div><div class="mini">mean score, draw</div></div>
+        </div>
+        <div class="note">Both columns come from the <i>same</i> shuffles, so they are directly comparable —
+          the only difference is that the on-the-draw column knows an eighth card is coming.</div>
+      </div>
+      <div class="card">
+        <h2>Lands in the opening seven</h2>
+        <div class="gfhist ok">${hist}</div>
+        <div class="note">${ctx.landCount} lands in ${ctx.N} cards puts the expected opener at about
+          <b>${ideal}</b>, which is what the land-count score is measured against — not a fixed 3-to-4 band.</div>
+      </div>
     </div>
-    <div class="note">Same shuffles both times. The only difference is that the on-the-draw column knows an
-      eighth card is coming, which rescues land-light hands and is why fewer of them go back.
-      A hand counts as shipped when it scores below ${ctx.keepPlay} on the play or ${ctx.keepDraw} on the draw.</div>
-  </div>
 
-  <div class="card">
-    <h2>Lands in the opening seven</h2>
-    <div class="gfhist ok">${hist}</div>
-    <div class="note">This deck's ${ctx.landCount} lands in ${ctx.N} cards put the expected opener at
-      about ${ideal} lands, which is what the land-count score is measured against.</div>
-  </div>
-
-  <div class="card">
-    <h2>Hands <span class="mini" style="text-transform:none;letter-spacing:0">— click one to open it</span></h2>
-    ${rows}
-    ${more}
+    <div class="gfpanel">
+      <div class="card">
+        <h2>Hands <span class="mini" style="text-transform:none;letter-spacing:0">— click one to open it</span></h2>
+        <div class="gfscroll">${rows}</div>
+        ${more}
+      </div>
+    </div>
   </div>`;
 }
+
+/* Odds snapshot, taken immediately BEFORE a draw so the next render can show
+   what moved. Keyed by card object, which is why expandDeck shares references
+   rather than copying: a 4-of is one key, not four.
+
+   Cleared whenever the comparison would be meaningless — on reset, and on
+   flipping play/draw, since that changes the basis of every figure rather than
+   representing a thing that happened. */
+function gfSnapshotOdds(){
+  const r = GF.scored[GF.drill];
+  if(!r) return null;
+  const inst=r.inst, deck=GF.deck, ctx=Object.assign({}, GF.ctx, {onPlay:GF.onPlay});
+  const m = new Map();
+  for(const c of inst.hand) if(!m.has(c)) m.set(c, onCurve(c, inst, deck, ctx).p);
+  for(const [c] of libraryState(inst, deck).counts)
+    if(!m.has(c)) m.set(c, onCurve(c, inst, deck, ctx).p);
+  return m;
+}
+
+/* A movement chip, or nothing. Sub-half-a-point moves are suppressed: a table
+   speckled with "+0.2" chips reads as noise and hides the moves that matter. */
+function gfDeltaHTML(card, cur){
+  if(!GF.prev || !GF.prev.has(card)) return '';
+  const d = (cur - GF.prev.get(card))*100;
+  if(Math.abs(d) < 0.5) return '';
+  return `<span class="gfd ${d>0?'up':'dn'}">${d>0?'+':'−'}${Math.abs(d).toFixed(0)}</span>`;
+}
+const gfMoved = (card, cur)=>
+  GF.prev && GF.prev.has(card) && Math.abs(cur-GF.prev.get(card))*100 >= 0.5;
 
 function gfDrillHTML(){
   const r = GF.scored[GF.drill], inst = r.inst, deck = GF.deck;
@@ -1754,10 +1842,18 @@ function gfDrillHTML(){
   const cardHTML = (c, isNew)=>{
     const oc = onCurve(c, inst, deck, ctx);
     const dead = !c.land && oc.p<=0;
-    return `<div class="gfcard${c.land?' land':''}${dead?' dead':''}${isNew?' new':''}">
+    const tip = c.land
+      ? `${c.name}\nLand${(c.produces||[]).length?' — makes '+(c.produces||[]).join(''):''}${c.tapped?'\nEnters tapped':''}`
+      : `${c.name}  ${c.cost||''}\nCast on curve turn ${oc.turn}\n\n`
+        + `Hold it:      ${gpc(oc.pHave)}\n`
+        + `${oc.turn} lands by T${oc.turn}:  ${gpc(oc.pLands)}\n`
+        + `Colours:      ${gpc(oc.pColors)}\n`
+        + `───────────────\n`
+        + `On curve:     ${gpc(oc.p)}`;
+    return `<div class="gfcard${c.land?' land':''}${dead?' dead':''}${isNew?' new':''}" data-tip="${tip.replace(/"/g,'&quot;')}">
       <div><b>${c.name}</b><div class="mv">${c.land?'Land':(c.cost||'')+' · MV '+(Math.round(c.cmc)||0)}</div></div>
-      <div>${c.land?'<div class="pl">produces</div><div class="mv">'+((c.produces||[]).join('') || '—')+'</div>'
-                   :'<div class="pv">'+gpc0(oc.p)+'</div><div class="pl">on curve T'+oc.turn+'</div>'}</div>
+      <div>${c.land?'<div class="pl">makes</div><div class="mv">'+((c.produces||[]).join('') || '—')+'</div>'
+                   :'<div class="pv">'+gpc0(oc.p)+gfDeltaHTML(c, oc.p)+'</div><div class="pl">on curve T'+oc.turn+'</div>'}</div>
     </div>`;
   };
 
@@ -1767,67 +1863,74 @@ function gfDrillHTML(){
       <span class="pt">${c.points.toFixed(1)} / ${c.weight}</span>
       <span class="nt">${c.note}</span></div>`).join('');
 
-  // hand table — only spells; lands have no curve of their own
-  const handRows = opener.concat(drawn).filter(c=>!c.land).map(c=>{
-    const o = onCurve(c, inst, deck, ctx);
-    return `<tr><td>${c.name}</td><td>${c.cost||''}</td><td>T${o.turn}</td>
-      <td>${gpc(o.pLands)}</td><td>${gpc(o.pColors)}</td>
-      <td><b style="color:var(--${gfTone(o.p)})">${gpc(o.p)}</b></td></tr>`;
-  }).join('') || `<tr><td colspan="6" class="mini">No spells in hand.</td></tr>`;
-
-  // library table — grouped by card, most likely to matter first
-  const libRows = [...lib.counts.entries()]
-    .map(([c,n])=>({c, n, o:onCurve(c, inst, deck, ctx), next:pDrawWithin(c, inst, deck, 1)}))
-    .sort((a,b)=> b.o.p-a.o.p || b.n-a.n)
-    .map(({c,n,o,next})=>`<tr><td>${c.name}</td><td>${n}</td>
-      <td>${gpc(next)}</td>
-      <td>${gpc(pDrawWithin(c, inst, deck, Math.max(0, cardsSeen(3,onPlay)-(inst.handSize+inst.drawn))))}</td>
-      <td>${gpc(pDrawWithin(c, inst, deck, Math.max(0, cardsSeen(5,onPlay)-(inst.handSize+inst.drawn))))}</td>
-      <td>${c.land?'<span class="mini">land</span>':'<b style="color:var(--'+gfTone(o.p)+')">'+gpc(o.p)+'</b>'}</td></tr>`).join('');
+  /* Library rows, ordered by what you most want to arrive: castable spells by
+     on-curve chance, then lands, then anything dead. Sorting by raw probability
+     alone would float the lands to the bottom silently; this makes it a rule. */
+  const rows = [...lib.counts.entries()]
+    .map(([c,n])=>({c, n, o:onCurve(c, inst, deck, ctx),
+                    next:pDrawWithin(c, inst, deck, 1)}))
+    .sort((a,b)=>{
+      const rank = x => x.c.land ? 1 : (x.o.p<=0 ? 2 : 0);
+      return rank(a)-rank(b) || b.o.p-a.o.p || b.n-a.n || a.c.name.localeCompare(b.c.name);
+    });
+  const seenNow = inst.handSize + inst.drawn;
+  const t3 = Math.max(0, cardsSeen(3,onPlay)-seenNow);
+  const libRows = rows.map(({c,n,o,next})=>
+    `<tr${gfMoved(c,o.p)?' class="moved"':''}><td>${c.name}</td><td>${n}</td>
+      <td>${gpc0(next)}</td><td>${gpc0(pDrawWithin(c, inst, deck, t3))}</td>
+      <td>${c.land?'<span class="mini">—</span>'
+                  :'<b style="color:var(--'+gfTone(o.p)+')">'+gpc0(o.p)+'</b>'+gfDeltaHTML(c,o.p)}</td></tr>`).join('')
+    || `<tr><td colspan="5" class="mini">Library is empty.</td></tr>`;
 
   return `
-  <div class="card">
-    <div class="row" style="justify-content:space-between">
-      <div class="row">
-        <button id="gfBack">← All hands</button>
-        <span class="mini">hand #${GF.drill+1} · seed <code>${gfSeedHex(inst.seed)}</code></span>
+  <div class="gfbar">
+    <div class="row">
+      <button id="gfBack">← All hands</button>
+      <span class="mini">#${GF.drill+1} · <code>${gfSeedHex(inst.seed)}</code></span>
+    </div>
+    <div class="row" style="gap:var(--s5)">
+      <div class="gfmeter"><span class="n" style="color:var(--${gfTone(sc.score/100)})">${sc.score.toFixed(0)}</span>
+        <span class="u tip" tabindex="0" data-tip="The opening seven's keepability score, out of 100. It rates the hand you were dealt and deliberately does not move as you draw — the probabilities are what move.">${sc.label}</span></div>
+      <div class="gfmeter"><span class="n">${turn<1?'—':turn}</span><span class="u">${turn<1?'pre-turn':'turn'}</span></div>
+      <div class="gfmeter"><span class="n">${seenNow}</span><span class="u">seen</span></div>
+      <div class="gfmeter"><span class="n">${lib.size}</span><span class="u">left</span></div>
+    </div>
+    <div class="row">
+      <button id="gfToggle" class="tip r" data-tip="On the draw you see an eighth card before your first turn, so every probability improves and land-light hands become keepable. Switching resets the change markers, since it changes the basis of every figure.">${onPlay?'On the play':'On the draw'}</button>
+      <button id="gfReset" ${inst.drawn?'':'disabled'}>Reset</button>
+      <button id="gfDraw" class="primary" ${lib.size?'':'disabled'}>Draw a card</button>
+    </div>
+  </div>
+
+  <div class="gfwork">
+    <div class="gfpanel">
+      <div class="card">
+        <h2>Hand — ${opener.length+drawn.length} cards <span class="mini" style="text-transform:none;letter-spacing:0">— hover a card for its full breakdown</span></h2>
+        <div class="gfhand">${opener.map(c=>cardHTML(c,false)).join('')}${drawn.map(c=>cardHTML(c,true)).join('')}</div>
       </div>
-      <div class="row">
-        <button id="gfToggle">${onPlay?'On the play':'On the draw'}</button>
-        <button id="gfDraw" ${lib.size?'':'disabled'}>Draw a card</button>
-        <button id="gfReset" ${inst.drawn?'':'disabled'}>Reset</button>
+      <div class="card">
+        <h2>Why it scored ${sc.score.toFixed(0)}</h2>
+        <div class="gfbreak">${breakdown}</div>
+        <div class="note">A heuristic, not a probability — five weighted components, shown so you can disagree
+          with any one of them. Threshold for a keep here is ${sc.threshold}.</div>
       </div>
     </div>
-    <div class="row" style="margin-top:var(--s3);gap:var(--s5)">
-      <div><div class="big" style="color:var(--${gfTone(sc.score/100)})">${sc.score.toFixed(0)}</div>
-           <div class="mini">${sc.label} — threshold ${sc.threshold}</div></div>
-      <div><div class="big">${turn<1?'—':'T'+turn}</div><div class="mini">${turn<1?'opening hand':'turn'}</div></div>
-      <div><div class="big">${inst.handSize+inst.drawn}</div><div class="mini">cards seen</div></div>
-      <div><div class="big">${lib.size}</div><div class="mini">left in library</div></div>
+
+    <div class="gfpanel">
+      <div class="card">
+        <h2>Library — ${lib.size} cards</h2>
+        <div class="gfscroll">
+          <table><thead><tr>
+            <th>Card</th><th class="tip" tabindex="0" data-tip="Copies still in the library.">#</th>
+            <th class="tip" tabindex="0" data-tip="Chance the very next card you draw is this one.">Next</th>
+            <th class="tip" tabindex="0" data-tip="Chance you have drawn at least one copy by turn three.">By T3</th>
+            <th class="tip r" tabindex="0" data-tip="Chance you hold it AND have the lands AND have the colours, on the turn matching its mana value. Lands show a dash — they have no curve of their own.">On curve</th>
+          </tr></thead><tbody>${libRows}</tbody></table>
+        </div>
+        <div class="note">Computed from what is <i>left</i>, never from the shuffled order — the order only decides
+          which card Draw turns over.${GF.prev?' Chips show what your last draw changed.':''}</div>
+      </div>
     </div>
-    <div class="gfhand">${opener.map(c=>cardHTML(c,false)).join('')}${drawn.map(c=>cardHTML(c,true)).join('')}</div>
-    <div class="note">Percentages come from what is <i>left</i> in the library, never from the shuffled order —
-      the order only decides which card Draw turns over. The score rates the opening seven and does not move as
-      you draw; the percentages do.</div>
-  </div>
-
-  <div class="card">
-    <h2>Why it scored ${sc.score.toFixed(0)}</h2>
-    <div class="gfbreak">${breakdown}</div>
-  </div>
-
-  <div class="card">
-    <h2>Spells in hand</h2>
-    <table><thead><tr><th>Card</th><th>Cost</th><th>Curve</th><th>P(lands)</th><th>P(colors)</th><th>P(on curve)</th></tr></thead>
-      <tbody>${handRows}</tbody></table>
-    <div class="note">P(on curve) is P(you hold it) × P(you have that many lands by that turn) ×
-      P(the colours are there, given the lands). The first factor is 100% for a card already in your hand.</div>
-  </div>
-
-  <div class="card">
-    <h2>Still in the library — ${lib.size} cards</h2>
-    <table><thead><tr><th>Card</th><th>Left</th><th>P(next draw)</th><th>P(≥1 by T3)</th><th>P(≥1 by T5)</th><th>P(on curve)</th></tr></thead>
-      <tbody>${libRows}</tbody></table>
   </div>`;
 }
 
@@ -2594,13 +2697,22 @@ $('gfOut').addEventListener('click',e=>{
   const row = e.target.closest('[data-gi]');
   if(row){ GF.drill=+row.dataset.gi; renderGoldfish(); return; }
   const id = e.target.id;
-  if(id==='gfBack'){ GF.drill=null; renderGoldfish(); }
+  if(id==='gfBack'){ GF.drill=null; GF.prev=null; renderGoldfish(); }
   else if(id==='gfMore'){ GF.shown+=100; renderGoldfish(); }
-  else if(id==='gfToggle'){ GF.onPlay=!GF.onPlay; renderGoldfish(); }
-  else if(id==='gfDraw'){ drawOne(GF.scored[GF.drill].inst, GF.deck); renderGoldfish(); }
+  else if(id==='gfToggle'){
+    // Flipping the mode changes the BASIS of every figure. A delta against the
+    // other column would be comparing two different questions, so clear it.
+    GF.onPlay=!GF.onPlay; GF.prev=null; renderGoldfish();
+  }
+  else if(id==='gfDraw'){
+    GF.prev = gfSnapshotOdds();            // capture BEFORE the draw
+    drawOne(GF.scored[GF.drill].inst, GF.deck);
+    renderGoldfish();
+  }
   else if(id==='gfReset'){
     const i=GF.scored[GF.drill].inst;
     i.drawn=0; i.hand=i.order.slice(0,i.handSize);
+    GF.prev=null;
     renderGoldfish();
   }
 });
