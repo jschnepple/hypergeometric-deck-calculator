@@ -79,6 +79,7 @@ textarea{width:100%;height:400px;background:var(--g0);color:var(--tx);border:1px
   border-radius:var(--r2);padding:var(--s3);font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical;
   box-shadow:inset 0 1px 3px rgba(0,0,0,.26);
   transition:border-color var(--d-fast) var(--ease),box-shadow var(--d-fast) var(--ease)}
+::placeholder{color:var(--dim2);opacity:1}
 textarea:focus,input:focus,select:focus{outline:none;border-color:rgba(108,176,255,.6);
   box-shadow:0 0 0 3px rgba(108,176,255,.22),inset 0 1px 3px rgba(0,0,0,.22)}
 
@@ -183,6 +184,35 @@ input[type=number]{width:64px}
 code{background:rgba(255,255,255,.075);padding:1px 5px;border-radius:var(--r1);font-size:11px;
   border:1px solid rgba(255,255,255,.05)}
 
+/* ---- getting started ---- */
+#help{width:30px;padding:7px 0;text-align:center;font-weight:700;font-size:13px}
+.guidewrap{padding:var(--s5) var(--s6) 0}
+.guidewrap .card{margin-bottom:0;position:relative}
+.gx{position:absolute;top:var(--s3);right:var(--s3);width:26px;height:26px;padding:0;
+  font-size:16px;line-height:1;color:var(--dim);border-radius:var(--rp)}
+.gintro{font-size:13px;color:var(--dim);line-height:1.65;max-width:78ch}
+.gsteps{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4);margin-top:var(--s5)}
+@media(max-width:900px){.gsteps{grid-template-columns:1fr}}
+.gstep{display:flex;gap:var(--s3);align-items:flex-start;padding:var(--s3) var(--s4);
+  border-radius:var(--r2);background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);
+  transition:background var(--d-base) var(--ease),border-color var(--d-base) var(--ease)}
+.gstep>i{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-style:normal;font-size:11px;font-weight:700;
+  background:rgba(255,255,255,.1);color:var(--tx);
+  transition:background var(--d-base) var(--ease),color var(--d-base) var(--ease)}
+.gstep>div{display:flex;flex-direction:column;gap:3px}
+.gstep b{font-size:12.5px;font-weight:650}
+.gstep span{font-size:11.5px;color:var(--dim2);line-height:1.55}
+.gstep.done{background:rgba(88,202,115,.07);border-color:rgba(88,202,115,.22)}
+.gstep.done>i{background:var(--good);color:#052e10}
+.gstep.done b{color:var(--dim)}
+
+/* ---- empty states: every panel explains itself before there is data ---- */
+.empty{display:flex;flex-direction:column;gap:5px;padding:var(--s4) 0}
+.empty b{font-size:12.5px;font-weight:650;color:var(--dim)}
+.empty span{font-size:11.5px;color:var(--dim2);line-height:1.6;max-width:62ch}
+td .empty,.empty.row1{padding:var(--s3) 0}
+
 /* ---- scrollbars ---- */
 *::-webkit-scrollbar{width:11px;height:11px}
 *::-webkit-scrollbar-track{background:transparent}
@@ -221,6 +251,7 @@ body.typing .delta{animation:none}
   <h1>Deck Consistency Calculator</h1>
   <span class="sub">Karsten hypergeometric math · 60-card Standard</span>
   <span style="flex:1"></span>
+  <button id="help" title="Show the getting-started steps" aria-label="Getting started">?</button>
   <button id="snap">Snapshot for diff</button>
   <button id="clearSnap" class="hide">Clear diff</button>
   <button id="lookup" class="primary">Look up costs (Scryfall)</button>
@@ -243,16 +274,39 @@ body.typing .delta{animation:none}
 </div>
 <div id="storageWarn" class="hide"></div>
 
+<div id="guide" class="guidewrap hide">
+  <div class="card">
+    <button id="guideClose" class="gx" title="Dismiss" aria-label="Dismiss">&times;</button>
+    <h2>What this is</h2>
+    <div class="gintro">This works out whether your deck's mana actually supports the spells in it — how many
+      lands to run, how many sources of each colour, and which card is driving each requirement. It uses
+      Frank Karsten's published research, re-derived here by simulation. Everything recalculates as you type.</div>
+    <div class="gsteps" id="gsteps"></div>
+  </div>
+</div>
+
 <div class="wrap">
 
   <!-- ============ LEFT: INPUT ============ -->
   <div>
     <div class="card">
       <h2>Decklist</h2>
-      <textarea id="list" spellcheck="false"></textarea>
+      <textarea id="list" spellcheck="false" placeholder="Paste your decklist here — one card per line.
+
+4 Lightning Bolt
+2 Sheoldred, the Apocalypse
+4 Blood Crypt
+8 Mountain
+
+Then click “Look up costs (Scryfall)” above."></textarea>
+      <div class="row" style="margin-top:var(--s3)">
+        <button id="loadDemo">Load example deck</button>
+        <span class="mini">fills the list and resolves it in one click</span>
+      </div>
       <div class="note">
         Format <code>4 Lightning Bolt</code>. Everything recalculates as you type.<br>
-        Override a cost inline: <code>4 Some Card {1}{R}{R}</code> · mark a land: <code>4 Mystery Land [land:RG]</code>
+        Override a cost inline: <code>4 Some Card {1}{R}{R}</code> · land Scryfall can't find:
+        <code>4 Mystery Land [land:RG]</code>
       </div>
     </div>
 
@@ -895,7 +949,9 @@ function addPayoff(kind){
 
 function renderPayoffs(A){
   if(!PAYOFFS.length){
-    $('payoffList').innerHTML='<div class="dim">No dig effects yet. Add one above — the odds update live as you edit the decklist.</div>';
+    $('payoffList').innerHTML=empty('Dig effects',
+      'Add one above and this works out what a “look at the top N cards” effect actually finds in your deck — '+
+      'the full distribution, not just the average. The odds update live as you edit the list.');
     $('tensionCard').classList.add('hide'); return;
   }
   const sel=(v,opts,attr)=>`<select data-attr="${attr}">${opts.map(([k,l])=>
@@ -1059,9 +1115,37 @@ function tweenNum(key, to, fmt){
   NUMTIMER[key]=requestAnimationFrame(step);
 }
 
+/* Empty panels are the best onboarding surface this tool has: the explanation
+   sits exactly where the answer will appear, needs no dismissing, and survives
+   every breakpoint. */
+const empty=(t,d)=>`<div class="empty"><b>${t}</b><span>${d}</span></div>`;
+const emptyRow=(cols,t,d)=>`<tr><td colspan="${cols}">${empty(t,d)}</td></tr>`;
+
+/* Three steps, each ticked off by the deck's own state rather than by a flag.
+   Completing all three retires the card for good; the ? in the header brings it
+   back, and the X dismisses it early. */
+function renderGuide(A){
+  const g=$('guide');
+  if(GUIDE_OFF){ g.classList.add('hide'); return; }
+  const steps=[
+    [A.total>0, 'Paste your decklist',
+     'One card per line. Or click <b>Load example deck</b> to see the whole tool lit up first.'],
+    [A.total>0 && A.unknown.length===0, 'Look up costs',
+     'The blue button, top right. Until you do, any card it does not recognise is left out of every calculation.'],
+    [!!SNAPSHOT, 'Snapshot, then tune',
+     'Take a snapshot, change a land or two, and every figure shows you how far it moved.']
+  ];
+  if(steps.every(s=>s[0]) && !GUIDE_FORCE){ GUIDE_OFF=true; saveGuide(); g.classList.add('hide'); return; }
+  g.classList.remove('hide');
+  $('gsteps').innerHTML = steps.map(([done,t,d],i)=>
+    `<div class="gstep${done?' done':''}"><i>${done?'✓':i+1}</i>
+       <div><b>${t}</b><span>${d}</span></div></div>`).join('');
+}
+
 function render(){
   captureBars();
   const A=analyse();
+  renderGuide(A);
   renderConflicts(A); renderGlance(A);
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
   renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
@@ -1085,7 +1169,13 @@ function dpp(now, key){                     // diff badge in percentage points
 
 function renderConflicts(A){
   const out=[];
-  if(A.total===0){ $('conflicts').innerHTML='<div class="dim">Paste a decklist to begin.</div>'; return; }
+  if(A.total===0){
+    $('conflicts').innerHTML=empty('Nothing to check yet',
+      'Paste a decklist on the left and this panel lists every mana problem it finds, in plain English — '+
+      'colours you are short on, a land count that fights your curve, and whether the mana base you have '+
+      'described is even buildable. Start here; the other tabs explain where each verdict came from.');
+    return;
+  }
 
   // deck size
   if(A.total!==A.N) out.push(['bad',`Deck is <b>${A.total}</b> cards, not ${A.N}.`]);
@@ -1128,6 +1218,11 @@ function renderConflicts(A){
 }
 
 function renderGlance(A){
+  if(A.total===0){
+    $('glance').innerHTML=empty('Your deck in five numbers',
+      'Card count, lands, spells, average mana value, and the land count that average implies.');
+    return;
+  }
   const rows=[
     ['Total cards', A.total],
     ['Lands', A.landCount+d(A.landCount,'landCount')],
@@ -1157,6 +1252,20 @@ function renderCurve(A, el, mini){
 }
 
 function renderLands(A){
+  if(A.total===0){
+    $('landRec').textContent='—';
+    $('landRecSub').textContent='';
+    $('landStats').innerHTML=empty('How many lands to run',
+      'Karsten fitted a regression over ~95,000 winning tournament decklists. Once you paste a list this '+
+      'gives the land count decks like yours actually ran, and the hypergeometric table below checks it '+
+      'against your odds of hitting each land drop.');
+    $('landFormula').innerHTML='';
+    $('landDrops').innerHTML=emptyRow(4,'Land drop odds',
+      'Your chance of having N lands by turn N, mulligans included, next to the same figure at the recommended count.');
+    $('floodRisk').innerHTML=empty('Flood and screw',
+      'How often this deck keeps a workable opening seven, how often it stalls on one land, and how often it drowns in five.');
+    return;
+  }
   $('landRec').innerHTML = A.recR + d(A.recR,'recR');
   $('landRecSub').textContent = `you have ${A.landCount} · regression output ${A.rec.toFixed(2)}`;
   $('landStats').innerHTML = [
@@ -1192,6 +1301,15 @@ function renderLands(A){
 }
 
 function renderColors(A){
+  if(A.total===0){
+    $('colorPanels').innerHTML=empty('Coloured sources — required vs. actual',
+      'For each colour, the number of sources you need to cast your most demanding spell on curve, against '+
+      'the number you actually have. This is the panel that catches the deck which looks fine on paper and '+
+      'stumbles on turn three.');
+    $('driverRows').innerHTML=emptyRow(9,'What is driving each requirement',
+      'Every card ranked by how hard it leans on a colour, so you can see which single spell is setting the bar.');
+    return;
+  }
   let h='';
   COLORS.forEach(c=>{
     const want=A.need[c]||0, haveRaw=A.sources[c]||0, un=A.untapped[c]||0;
@@ -1269,6 +1387,14 @@ function renderColors(A){
 }
 
 function renderCurveStats(A){
+  if(A.total===0){
+    $('curveStats').innerHTML=empty('Your curve, spell by spell',
+      'How many spells sit at each mana value, and what share of the deck each step represents.');
+    $('archetype').innerHTML=empty('Archetype fit',
+      'Your average mana value places the deck on the aggro-to-control spectrum, which sets both the land '+
+      'count you want and how many taplands you can afford.');
+    return;
+  }
   const tot=A.spellCount||1;
   let h='';
   for(let i=0;i<=7;i++){
@@ -1307,6 +1433,12 @@ function renderCopies(A){
   $('copyNote').innerHTML=`Seeing <b>${seen}</b> cards by turn ${t} in a ${A.N}-card deck. Note the sharply diminishing returns: the 2nd copy buys far more than the 4th.
     A 4-of is for cards you need <i>early and every game</i>; a 2-of is for cards that are good but replaceable, or that you can find with card selection.`;
 
+  if(A.total===0){
+    $('deckCopyRows').innerHTML=emptyRow(5,'Your cards, by copy count',
+      'Once a list is in, every card here shows how reliably you see it by turn three and turn five — '+
+      'the check on whether a 3-of should really be a 4-of.');
+    return;
+  }
   $('deckCopyRows').innerHTML = A.spells.slice(0,40).map(c=>{
     const s3=Math.min(cardsSeen(3,A.onPlay),A.N), s5=Math.min(cardsSeen(5,A.onPlay),A.N);
     return `<tr><td>${c.name}</td><td>${c.qty}</td>
@@ -1317,6 +1449,12 @@ function renderCopies(A){
 }
 
 function renderUnresolved(A){
+  if(A.total===0){
+    $('unresolved').innerHTML=empty('Cards this tool could not identify',
+      'Anything it cannot resolve is excluded from every calculation rather than guessed at, and gets '+
+      'listed here so the omission is never silent.');
+    return;
+  }
   if(!A.unknown.length){ $('unresolved').innerHTML='<div class="mini">All cards resolved.</div>'; return; }
   $('unresolved').innerHTML = `<div class="flag"><b>${A.unknown.length} card(s) not recognised.</b> They are excluded from every calculation.
     Click “Look up costs (Scryfall)”, or annotate them inline.</div>` +
@@ -1371,6 +1509,14 @@ function renderMethod(A){
    the files are the durable copy.
    ============================================================ */
 const STORE_KEY='mtg-mana-calc-v1';
+/* The getting-started card lives under its own key rather than inside STATE, so
+   it never travels in an export and can never invalidate a saved build. */
+const GUIDE_KEY='mtg-mana-calc-guide-v1';
+let GUIDE_OFF=false, GUIDE_FORCE=false;
+function loadGuide(){ if(!STORAGE_OK) return;
+  try{ GUIDE_OFF = localStorage.getItem(GUIDE_KEY)==='1'; }catch(e){} }
+function saveGuide(){ if(!STORAGE_OK) return;
+  try{ localStorage.setItem(GUIDE_KEY, GUIDE_OFF?'1':'0'); }catch(e){} }
 let STATE={builds:{}, active:null, cardCache:{}};
 let DIRTY=false, STORAGE_OK=true;
 
@@ -1432,6 +1578,9 @@ function autosave(){
 function updateSaveState(auto){
   const el=$('saveState');
   if(!STORAGE_OK){ el.className='mini warn'; el.textContent='not saved to browser — export to keep'; return; }
+  /* No active build is the normal first-run state now that nothing is auto-created.
+     Saying "unsaved changes" there would nag about a build that does not exist yet. */
+  if(!STATE.active){ el.className='mini'; el.textContent='name this build and hit Save to keep it'; return; }
   if(DIRTY){ el.className='mini unsaved'; el.textContent='unsaved changes…'; }
   else { el.className='mini saved'; el.textContent = STATE.active ? (auto?'autosaved ✓':'saved ✓') : ''; }
 }
@@ -1640,6 +1789,17 @@ window.addEventListener('beforeunload',e=>{
   if(DIRTY){ e.preventDefault(); e.returnValue=''; }
 });
 $('lookup').addEventListener('click',lookup);
+$('help').addEventListener('click',()=>{
+  GUIDE_OFF=false; GUIDE_FORCE=true; saveGuide(); render();
+  $('guide').scrollIntoView({behavior:REDUCED?'auto':'smooth',block:'nearest'});
+});
+$('guideClose').addEventListener('click',()=>{
+  GUIDE_OFF=true; GUIDE_FORCE=false; saveGuide(); $('guide').classList.add('hide');
+});
+$('loadDemo').addEventListener('click',()=>{
+  $('list').value=DEMO; render(); markDirty();
+  lookup();                                   // one click from empty to fully resolved
+});
 $('snap').addEventListener('click',()=>{
   const A=analyse();
   SNAPSHOT={landCount:A.landCount,avgMV:A.avgMV,recR:A.recR};
@@ -1681,17 +1841,18 @@ if(!STORAGE_OK){
 }
 loadStore();
 
+loadGuide();
+
 if(STATE.active && STATE.builds[STATE.active]){
   applyState(STATE.builds[STATE.active]);           // resume where you left off
 } else if(Object.keys(STATE.builds).length){
   STATE.active=Object.keys(STATE.builds).sort()[0];
   applyState(STATE.builds[STATE.active]);
-} else {
-  $('list').value=DEMO;                             // first run
-  STATE.active='Example build';
-  STATE.builds[STATE.active]=snapshotState();
-  persist();
 }
+/* First run deliberately leaves the list empty. Auto-loading the example used to
+   also mint a saved build called "Example build" in a deck list the user had not
+   put anything in yet — a fake entry they then had to delete. The example is a
+   button in the Decklist card instead, and the empty panels do the teaching. */
 refreshSlots(); updateSaveState(); render();
 </script>
 </body>

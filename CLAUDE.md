@@ -128,6 +128,28 @@ restructured and no render function's output changed shape.
   then WCAG-ratio each token against that. Tightest today is `--warn` on
   `.pill.warn` at 4.56.
 
+### Onboarding
+
+Added after session 3. Three parts, deliberately chosen over a coach-mark tour —
+a tour fires when every panel is still empty, so it has nothing to point at.
+
+- **Empty states teach in place.** Each render function returns early when
+  `A.total===0` and writes an `empty(title, body)` block explaining what that
+  panel will show. No chrome, no dismissal state, no positioning maths, correct at
+  every breakpoint, and the explanation sits where the answer will appear.
+- **The getting-started card** (`#guide`) is ticked off by the deck's own state —
+  paste, resolve, snapshot — not by a step counter. Completing all three retires
+  it permanently; the `?` in the header forces it back (`GUIDE_FORCE`), the X
+  dismisses early. It lives under its own localStorage key so it can never travel
+  in an export or invalidate a saved build.
+- **No auto-loaded demo.** First run leaves the list empty behind a placeholder.
+  The old behaviour also minted a saved build called "Example build" that the user
+  then had to delete. The example is a button in the Decklist card instead, and it
+  fires the Scryfall lookup so one click goes from empty to fully resolved.
+
+A consequence worth knowing: `STATE.active` is now legitimately `null` on first
+run, so `updateSaveState` has a branch for it. `autosave` already no-opped.
+
 ### Motion, and the constraint that shapes it
 
 `render()` rebuilds every panel with wholesale `innerHTML` on every keystroke, so a
