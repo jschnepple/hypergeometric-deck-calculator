@@ -99,6 +99,62 @@ group('gfBulkHTML — paging');
 /* ============================================================
    Drill view
    ============================================================ */
+group('gfBandsHTML — the legend must equal the thresholds');
+
+{
+  /* Hardcoding "52-75 = Keep" was the first version of this legend, and it
+     became a lie the moment either threshold moved. The bands ARE the
+     thresholds, so every assertion here is about them agreeing. */
+  const d = gfBandsHTML(52, 46);
+  clean('renders no broken values', d);
+  chk('names the play threshold', d.includes('52'));
+  chk('names the draw threshold', d.includes('46'));
+  chk('the gap between them is its own band', /Kept on the draw only/.test(d));
+  chk('the gap is 46-51', d.includes('46–51'), d);
+  chk('ship band stops below the lower threshold', d.includes('0–45'), d);
+  chk('snap keep is shown when both thresholds are below it', /76–100/.test(d));
+
+  // Move the thresholds; the bands must move with them.
+  const moved = gfBandsHTML(60, 55);
+  chk('bands follow a raised threshold', moved.includes('55–59') && moved.includes('0–54'), moved);
+  chk('…and no longer claim the old numbers', !moved.includes('46–51'));
+
+  // Equal thresholds: there is no draw-only band to show.
+  const same = gfBandsHTML(50, 50);
+  chk('equal thresholds collapse the middle band', !/Kept on the draw only/.test(same), same);
+  chk('…and still name a keep and a ship band', /Keep/.test(same) && /Ship it back/.test(same));
+
+  /* Every band must read low-to-high, at every threshold. The first version
+     printed "90–90" above the snap-keep line, because the Keep band stopped at
+     GF_SNAP-1 even when the threshold was already past it. */
+  const ranges = h => (h.match(/(\d+)–(\d+)/g) || []).map(r => r.split('–').map(Number));
+  let allOrdered = true, checked = 0;
+  for (let p = 0; p <= 100; p += 5) {
+    for (const off of [0, 6, -6]) {
+      const h = gfBandsHTML(p, Math.max(0, Math.min(100, p - off)));
+      checked++;
+      if (ranges(h).some(([a, b]) => b < a)) allOrdered = false;
+      if (BAD.test(h)) allOrdered = false;
+    }
+  }
+  chk(`no inverted or broken range across ${checked} threshold pairs`, allOrdered);
+
+  const high = gfBandsHTML(90, 88);
+  chk('above the snap-keep line, Keep runs to 100', high.includes('90–100'), high);
+  chk('…and the snap-keep band is not also shown', !high.includes('76–100'), high);
+
+  /* Reversed inputs — a stricter draw threshold than play. Odd, but typable, and
+     the label has to follow the numbers rather than the expectation. */
+  const rev = gfBandsHTML(40, 55);
+  clean('renders cleanly with the thresholds reversed', rev);
+  chk('reversed thresholds still order low to high', rev.includes('40–54'), rev);
+  chk('…and the middle band names the PLAY column', /Kept on the play only/.test(rev), rev);
+  chk('the normal way round still names the draw column',
+      /Kept on the draw only/.test(gfBandsHTML(52, 46)));
+
+  eq('the snap-keep line is shared with the scorer', GF_SNAP, 76);
+}
+
 group('gfDrillHTML');
 
 {
