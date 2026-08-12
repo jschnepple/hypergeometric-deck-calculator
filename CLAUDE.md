@@ -41,14 +41,16 @@ MEMORY.md           index of memories
 ```
 
 `index.html` is organised by banner comments (`MATH CORE`, `PARSING`, `ANALYSIS`,
-`DIG PAYOFFS`, `RENDER`, `PERSISTENCE`, `SCRYFALL`, `WIRING`). **The tests slice on
-those banners** — rename one and `tests/extract.js` will fail loudly with the
-banner name. That is intentional.
+`DIG PAYOFFS`, `GOLDFISH`, `RENDER`, `PERSISTENCE`, `SCRYFALL`, `WIRING`). **The
+tests slice on those banners** — rename one and `tests/extract.js` will fail loudly
+with the banner name. That is intentional. Adding a banner means editing
+`SECTIONS`: the slice before it must be re-pointed to end at the new name, or it
+silently swallows everything you just added.
 
 ## Testing
 
 ```bash
-node tests/run-all.js      # 221 tests, ~5s, zero dependencies
+node tests/run-all.js      # 445 tests, ~10s, zero dependencies
 ```
 
 Tests run against the **shipped** `index.html`, not a copy — `extract.js` pulls the
@@ -81,6 +83,16 @@ Run the suite after any edit to `index.html`.
   handler. Do not remove this.
 - Any public MTG tool needs the Wizards Fan Content Policy notice — it's in the
   footer and the README.
+- **The deck-level colour model is a threshold; the per-hand one is a probability.**
+  `required()` vs `sourcesFor()` answers "need 18, have 14" and cannot move as you
+  draw. `onCurve()` in `GOLDFISH` is the probability, and it is a separate thing
+  built on separate maths. Conflating them is the natural mistake — it is what
+  started session four.
+- **Pure logic goes in a testable slice, even when it produces markup.**
+  `gfBulkHTML`/`gfDrillHTML` return strings and live in `GOLDFISH`, not `RENDER`,
+  so `extract.js` can reach them. A broken template literal does not throw; it
+  renders the word `undefined` inside a percentage and nothing notices.
+  `tests/goldfishview.test.js` regexes every rendered hand for exactly that.
 - **Inline `[land:XY]` overrides Scryfall entirely.** `parseList` checks the tag
   before the DB, and the tagged branch hardcodes `tapped:false` and carries no
   `subtypes`, `verge`, `fetch`, `restriction` or `mdfcLand` — precisely the data
@@ -170,17 +182,53 @@ One-shot entrance keyframes *do* fire on creation, so they are gated behind
 `body.typing`, cleared 380ms after the last keystroke. Calculation stays instant;
 only the animation waits, then everything settles at once.
 
-## Current state — 2026-08-11 (session 3)
+## The Goldfish tab
 
-**Done.** Functionality was finished in session 2; session 3 made it look the part.
-221 tests green, `main` pushed to
-`github.com/jschnepple/hypergeometric-deck-calculator`.
+Added in session 4 (`memory/2026-08-12-goldfish.md`). Deals hundreds of opening
+hands, each from its own seeded shuffle, scores every one on the play and on the
+draw, and opens any of them for card-by-card draws with live odds.
 
-Session 2 put the project under version control and loaded the first real decklist
-— Jeff's Barrel Boys brew, in `decks/` — which alone surfaced seven manabase bugs,
-all fixed (`memory/2026-08-11-first-real-decklist.md`). Session 3 was the
-glassmorphism pass, with functionality frozen and not one analysis number changed
-(`memory/2026-08-11-glassmorphism-overhaul.md`).
+- **Probabilities read library composition, never the shuffled order.** The order
+  decides exactly one thing: which card Draw turns over. `libraryState()` enforces
+  this structurally, by subtracting known cards from the deck rather than reading
+  the order's tail. Keep it that way if a tutor, scry or bottoming step is added.
+- **On-curve is `P(hold) × P(lands) × P(colours | lands)`.** The third factor is
+  `P(sources AND lands) / P(lands)` over a **disjoint** three-way partition —
+  colour-producing lands, other lands, everything else. Disjointness is why duals
+  don't break it. Multiplying an unconditional colour probability by the land
+  probability instead double-counts the land requirement; that is the same trap
+  the deck-level table documents, and it is easy to reintroduce.
+- **Colours are multiplied, i.e. assumed independent.** Exact for one colour,
+  approximate for gold cards — the same approximation `required()` already makes.
+- **The calibration test is load-bearing.** Feeding `DERIVED`'s own source counts
+  back through `onCurve` returns 0.88–0.94, flat across the grid. Flatness is the
+  signature of correct conditioning: bad conditioning drifts with turn number. If
+  that test goes red, the conditioning has regressed — do not adjust the band.
+- **`GF` owns its state and render path.** `render()` must never call
+  `renderGoldfish` (it would wipe a drilled-in hand every keystroke); its only job
+  is `gfMarkStale()`, which flags rather than silently redeals. Results are
+  session-only and absent from `snapshotState()` by design.
+- **Hand scores are a heuristic and are presented as one** — five weighted
+  components, each shown with its reasoning. The score rates the opening seven and
+  deliberately does *not* move as you draw; the probabilities do.
+- **The one-land trap.** Scoring "earliest turn with a play" kept 79% of one-land
+  hands. `deployment()` replaced it: P(a play) on each of turns 1–4 with spells
+  consumed as cast. A regression group asserts keep rates by land count — if
+  one-land keeps climb back above 10%, that mistake has returned.
+
+Its own modelling gaps, all in the Method tab: land drops aren't sequenced (a
+tapland is treated as producing mana the turn it's played — optimistic, and the
+most valuable one to close), Verge conditional halves are excluded from the
+partition, and mulligans are reported as a ship rate rather than simulated as a
+London chain.
+
+## Current state — 2026-08-12 (session 4)
+
+**Done.** 445 tests green. Session 2 loaded the first real decklist and fixed seven
+manabase bugs; session 3 was the glassmorphism pass with functionality frozen;
+session 4 added the Goldfish tab and, in doing so, produced the strongest
+cross-validation the mana math has had — the closed-form conditional model and the
+`research/mana-engine` Monte Carlo agreeing to ~2 points across the whole grid.
 
 Remaining modelling gaps — mana rocks and dorks uncounted, X spells reading as mana
 value 0, split-card pips summed — are documented in the Method tab and all err
@@ -189,9 +237,15 @@ toward caution rather than false confidence.
 **Never profiled:** runtime performance under continuous typing. If jank appears on
 a 60-card list, the cause is the ~8 simultaneous `backdrop-filter` surfaces; cut the
 blur radius or drop blur from the left column rather than abandoning the material.
+The goldfish itself is not a suspect — 1000 hands score twice each in 39ms.
+
+**Never opened in a browser by the agent.** Session 4's UI was verified headlessly:
+the view builders are pure and tested for structure and for leaked `undefined`/`NaN`
+across 400 rendered hands, but nobody has *looked* at the Goldfish tab. Layout,
+wrapping at narrow widths, and the histogram's proportions are unverified.
 
 **Next up:** open. Mobile layout, card-name autocomplete, a sample-deck gallery, or
-closing one of the modelling gaps.
+closing one of the modelling gaps — sequenced land drops is now the biggest.
 
 **One manual step outstanding:** GitHub Pages may still need enabling —
 Settings → Pages → source `main` / root. `.nojekyll` is committed, but Pages itself

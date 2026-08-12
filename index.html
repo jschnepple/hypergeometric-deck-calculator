@@ -208,6 +208,41 @@ code{background:rgba(255,255,255,.075);padding:1px 5px;border-radius:var(--r1);f
 .gstep.done b{color:var(--dim)}
 
 /* ---- empty states: every panel explains itself before there is data ---- */
+/* ---- goldfish ------------------------------------------------------------
+   No new visual language: cards reuse .card's recessed well (--panel2), pills
+   reuse the existing semantic colours, and the hand "cards" are text blocks
+   with a colour-identity edge rather than anything trying to look like art. */
+.gflab{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim)}
+.gfhand{display:flex;gap:var(--s2);flex-wrap:wrap;margin:var(--s3) 0}
+.gfcard{flex:none;width:108px;min-height:132px;padding:var(--s3);border-radius:var(--r2);
+  border:1px solid var(--edge);background:var(--panel2);display:flex;flex-direction:column;
+  justify-content:space-between;gap:var(--s2);position:relative;overflow:hidden}
+.gfcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--dim2)}
+.gfcard.land::before{background:var(--good)}
+.gfcard.dead::before{background:var(--bad)}
+.gfcard b{font-size:11px;line-height:1.32;font-weight:650;word-break:break-word}
+.gfcard .mv{font-size:10.5px;color:var(--dim2);margin-top:2px}
+.gfcard .pv{font-size:15px;font-weight:680;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.gfcard .pl{font-size:9.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em}
+.gfcard.new{border-color:var(--acc);box-shadow:0 0 0 1px rgba(122,178,255,.35)}
+.gfrow{display:grid;grid-template-columns:56px 1fr auto auto;gap:var(--s3);align-items:center;
+  padding:var(--s2) var(--s3);border-radius:var(--r1);border:1px solid transparent;
+  cursor:pointer;font-size:11.5px}
+.gfrow:hover{background:rgba(255,255,255,.05);border-color:var(--edge)}
+.gfrow .sd{color:var(--dim2);font-variant-numeric:tabular-nums;font-size:10.5px}
+.gfrow .nm{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gfhist{display:flex;align-items:flex-end;gap:4px;height:74px;margin-top:var(--s3)}
+.gfhist>div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;height:100%}
+.gfhist i{display:block;width:100%;border-radius:var(--r1) var(--r1) 0 0;background:var(--acc);opacity:.55;min-height:2px}
+.gfhist.ok i{background:var(--good)}
+.gfhist span{font-size:10px;color:var(--dim2);font-variant-numeric:tabular-nums}
+.gfbreak{display:flex;flex-direction:column;gap:var(--s2);margin-top:var(--s3)}
+.gfbreak>div{display:grid;grid-template-columns:120px 1fr 62px;gap:var(--s3);align-items:center;font-size:11.5px}
+.gfbreak .lb{color:var(--dim)}
+.gfbreak .pt{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
+.gfbreak .nt{font-size:10.5px;color:var(--dim2);grid-column:2/4;margin-top:-4px}
+.gfstale{padding:var(--s3) var(--s4);border-radius:var(--r2);margin-bottom:var(--s4);
+  background:rgba(224,169,44,.10);border:1px solid rgba(224,169,44,.3);font-size:11.5px;color:var(--warn)}
 .empty{display:flex;flex-direction:column;gap:5px;padding:var(--s4) 0}
 .empty b{font-size:12.5px;font-weight:650;color:var(--dim)}
 .empty span{font-size:11.5px;color:var(--dim2);line-height:1.6;max-width:62ch}
@@ -338,6 +373,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
       <button data-t="curve">Mana Curve</button>
       <button data-t="copies">How Many Copies</button>
       <button data-t="payoffs">Payoffs</button>
+      <button data-t="goldfish">Goldfish</button>
       <button data-t="method">Method</button>
     </div>
 
@@ -447,6 +483,28 @@ Then click “Look up costs (Scryfall)” above."></textarea>
         <h2>Tension analysis</h2>
         <div id="tension"></div>
       </div>
+    </div>
+
+    <!-- GOLDFISH -->
+    <div id="p-goldfish" class="hide">
+      <div class="card">
+        <h2>Goldfish</h2>
+        <div class="row">
+          <label class="gflab">Hands
+            <select id="gfCount">
+              <option>100</option><option selected>500</option>
+              <option>1000</option><option>2500</option>
+            </select></label>
+          <label class="gflab">Seed <input type="number" id="gfSeed" value="1" style="width:92px"></label>
+          <button id="gfReseed" title="New random seed">↻</button>
+          <label class="gflab">Keep at ≥ (play) <input type="number" id="gfKeepPlay" value="52" min="0" max="100" style="width:64px"></label>
+          <label class="gflab">(draw) <input type="number" id="gfKeepDraw" value="46" min="0" max="100" style="width:64px"></label>
+          <button id="gfRun" class="primary">Deal hands</button>
+        </div>
+        <div class="note">Every hand is dealt from its own seeded shuffle of this exact list, and scored twice —
+          once as if you were on the play, once on the draw. Click any hand to open it and draw through it card by card.</div>
+      </div>
+      <div id="gfOut"></div>
     </div>
 
     <!-- METHOD -->
@@ -1526,6 +1584,182 @@ function bulkStats(scored){
   };
 }
 
+/* Goldfish session state. Lives here rather than in RENDER because it is state,
+   not markup, and because the view builders below must be reachable by tests. */
+const GF = {deck:null, ctx:null, scored:[], stats:null, drill:null, onPlay:true,
+            errors:null, stale:false, shown:100};
+
+/* ---- goldfish view builders ----------------------------------------------
+   Pure string builders, deliberately kept OUT of RENDER so tests/extract.js
+   can reach them. Everything they need arrives on GF; the only DOM contact
+   in the whole feature is renderGoldfish writing the result into #gfOut. */
+const gpc = x => (x*100).toFixed(1)+'%';
+const gpc0 = x => (x*100).toFixed(0)+'%';
+const gfSeedHex = s => (s>>>0).toString(16).padStart(8,'0');
+const gfTone = v => v>=0.75?'good':v>=0.45?'warn':'bad';
+
+/* render()'s only goldfish responsibility.
+
+   A signature of the resolved list, compared each keystroke. When it moves and
+   a run is on screen, the panel is flagged rather than silently recomputed —
+   silently redealing would throw away a hand the user was part-way through
+   drawing, and quietly recomputing against a different deck would be worse. */
+let GF_SIG = null;
+const gfSig = A => A.cards.map(c=>c.qty+'|'+c.name).join(',')+'#'+A.N;
+function gfMarkStale(A){
+  const sig = gfSig(A);
+  if(GF_SIG!==null && sig!==GF_SIG && GF.scored.length && !GF.stale){
+    GF.stale = true;
+    renderGoldfish();
+  }
+  GF_SIG = sig;
+}
+
+function gfBulkHTML(){
+  const s = GF.stats, ctx = GF.ctx;
+  const keys = Object.keys(s.landHist).map(Number).sort((a,b)=>a-b);
+  const maxH = Math.max(...keys.map(k=>s.landHist[k]));
+  const ideal = Math.max(2, Math.round(7*(ctx.landCount/ctx.N)));
+
+  const hist = keys.map(k=>{
+    const n = s.landHist[k];
+    return `<div><i style="height:${Math.max(2,(n/maxH)*54)}px${k===ideal?';opacity:.95':''}"></i>
+      <span>${k}</span><span style="opacity:.6">${gpc0(n/s.count)}</span></div>`;
+  }).join('');
+
+  const rows = GF.scored.slice(0, GF.shown).map((r,i)=>`
+    <div class="gfrow" data-gi="${i}">
+      <span class="sd">#${i+1}</span>
+      <span class="nm">${r.inst.hand.map(c=>c.name).join(' · ')}</span>
+      <span class="pill ${gfTone(r.play.score/100)}" title="on the play">${r.play.score.toFixed(0)}</span>
+      <span class="pill ${gfTone(r.draw.score/100)}" title="on the draw">${r.draw.score.toFixed(0)}</span>
+    </div>`).join('');
+
+  const more = GF.scored.length>GF.shown
+    ? `<div class="row" style="margin-top:var(--s3)"><button id="gfMore">Show ${Math.min(100, GF.scored.length-GF.shown)} more</button>
+       <span class="mini">${GF.shown} of ${GF.scored.length} shown — all ${GF.scored.length} are in the figures above</span></div>` : '';
+
+  return `
+  <div class="card">
+    <h2>Across ${s.count} hands</h2>
+    <div class="row" style="gap:var(--s6);align-items:flex-start;flex-wrap:wrap">
+      <div><div class="big">${gpc(s.shipPlay)}</div><div class="mini">shipped on the play</div></div>
+      <div><div class="big">${gpc(s.shipDraw)}</div><div class="mini">shipped on the draw</div></div>
+      <div><div class="big">${s.meanPlay.toFixed(1)}</div><div class="mini">mean score, on the play</div></div>
+      <div><div class="big">${s.meanDraw.toFixed(1)}</div><div class="mini">mean score, on the draw</div></div>
+    </div>
+    <div class="note">Same shuffles both times. The only difference is that the on-the-draw column knows an
+      eighth card is coming, which rescues land-light hands and is why fewer of them go back.
+      A hand counts as shipped when it scores below ${ctx.keepPlay} on the play or ${ctx.keepDraw} on the draw.</div>
+  </div>
+
+  <div class="card">
+    <h2>Lands in the opening seven</h2>
+    <div class="gfhist ok">${hist}</div>
+    <div class="note">This deck's ${ctx.landCount} lands in ${ctx.N} cards put the expected opener at
+      about ${ideal} lands, which is what the land-count score is measured against.</div>
+  </div>
+
+  <div class="card">
+    <h2>Hands <span class="mini" style="text-transform:none;letter-spacing:0">— click one to open it</span></h2>
+    ${rows}
+    ${more}
+  </div>`;
+}
+
+function gfDrillHTML(){
+  const r = GF.scored[GF.drill], inst = r.inst, deck = GF.deck;
+  const onPlay = GF.onPlay;
+  const sc = onPlay ? r.play : r.draw;
+  const ctx = Object.assign({}, GF.ctx, {onPlay});
+  const lib = libraryState(inst, deck);
+  const opener = inst.order.slice(0, inst.handSize);
+  const drawn  = inst.order.slice(inst.handSize, inst.handSize + inst.drawn);
+  /* Turn is derived so that cardsSeen(turn, onPlay) equals what is actually
+     known — that keeps the header honest against the same clock the maths uses.
+     On the draw with nothing drawn yet you have not taken a turn at all. */
+  const turn = onPlay ? inst.drawn+1 : inst.drawn;
+
+  const cardHTML = (c, isNew)=>{
+    const oc = onCurve(c, inst, deck, ctx);
+    const dead = !c.land && oc.p<=0;
+    return `<div class="gfcard${c.land?' land':''}${dead?' dead':''}${isNew?' new':''}">
+      <div><b>${c.name}</b><div class="mv">${c.land?'Land':(c.cost||'')+' · MV '+(Math.round(c.cmc)||0)}</div></div>
+      <div>${c.land?'<div class="pl">produces</div><div class="mv">'+((c.produces||[]).join('') || '—')+'</div>'
+                   :'<div class="pv">'+gpc0(oc.p)+'</div><div class="pl">on curve T'+oc.turn+'</div>'}</div>
+    </div>`;
+  };
+
+  const breakdown = sc.comps.map(c=>`
+    <div><span class="lb">${c.label}</span>
+      <span class="bar" style="margin:0"><i style="width:${(c.value*100).toFixed(1)}%;background:var(--${gfTone(c.value)})"></i></span>
+      <span class="pt">${c.points.toFixed(1)} / ${c.weight}</span>
+      <span class="nt">${c.note}</span></div>`).join('');
+
+  // hand table — only spells; lands have no curve of their own
+  const handRows = opener.concat(drawn).filter(c=>!c.land).map(c=>{
+    const o = onCurve(c, inst, deck, ctx);
+    return `<tr><td>${c.name}</td><td>${c.cost||''}</td><td>T${o.turn}</td>
+      <td>${gpc(o.pLands)}</td><td>${gpc(o.pColors)}</td>
+      <td><b style="color:var(--${gfTone(o.p)})">${gpc(o.p)}</b></td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="mini">No spells in hand.</td></tr>`;
+
+  // library table — grouped by card, most likely to matter first
+  const libRows = [...lib.counts.entries()]
+    .map(([c,n])=>({c, n, o:onCurve(c, inst, deck, ctx), next:pDrawWithin(c, inst, deck, 1)}))
+    .sort((a,b)=> b.o.p-a.o.p || b.n-a.n)
+    .map(({c,n,o,next})=>`<tr><td>${c.name}</td><td>${n}</td>
+      <td>${gpc(next)}</td>
+      <td>${gpc(pDrawWithin(c, inst, deck, Math.max(0, cardsSeen(3,onPlay)-(inst.handSize+inst.drawn))))}</td>
+      <td>${gpc(pDrawWithin(c, inst, deck, Math.max(0, cardsSeen(5,onPlay)-(inst.handSize+inst.drawn))))}</td>
+      <td>${c.land?'<span class="mini">land</span>':'<b style="color:var(--'+gfTone(o.p)+')">'+gpc(o.p)+'</b>'}</td></tr>`).join('');
+
+  return `
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <button id="gfBack">← All hands</button>
+        <span class="mini">hand #${GF.drill+1} · seed <code>${gfSeedHex(inst.seed)}</code></span>
+      </div>
+      <div class="row">
+        <button id="gfToggle">${onPlay?'On the play':'On the draw'}</button>
+        <button id="gfDraw" ${lib.size?'':'disabled'}>Draw a card</button>
+        <button id="gfReset" ${inst.drawn?'':'disabled'}>Reset</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:var(--s3);gap:var(--s5)">
+      <div><div class="big" style="color:var(--${gfTone(sc.score/100)})">${sc.score.toFixed(0)}</div>
+           <div class="mini">${sc.label} — threshold ${sc.threshold}</div></div>
+      <div><div class="big">${turn<1?'—':'T'+turn}</div><div class="mini">${turn<1?'opening hand':'turn'}</div></div>
+      <div><div class="big">${inst.handSize+inst.drawn}</div><div class="mini">cards seen</div></div>
+      <div><div class="big">${lib.size}</div><div class="mini">left in library</div></div>
+    </div>
+    <div class="gfhand">${opener.map(c=>cardHTML(c,false)).join('')}${drawn.map(c=>cardHTML(c,true)).join('')}</div>
+    <div class="note">Percentages come from what is <i>left</i> in the library, never from the shuffled order —
+      the order only decides which card Draw turns over. The score rates the opening seven and does not move as
+      you draw; the percentages do.</div>
+  </div>
+
+  <div class="card">
+    <h2>Why it scored ${sc.score.toFixed(0)}</h2>
+    <div class="gfbreak">${breakdown}</div>
+  </div>
+
+  <div class="card">
+    <h2>Spells in hand</h2>
+    <table><thead><tr><th>Card</th><th>Cost</th><th>Curve</th><th>P(lands)</th><th>P(colors)</th><th>P(on curve)</th></tr></thead>
+      <tbody>${handRows}</tbody></table>
+    <div class="note">P(on curve) is P(you hold it) × P(you have that many lands by that turn) ×
+      P(the colours are there, given the lands). The first factor is 100% for a card already in your hand.</div>
+  </div>
+
+  <div class="card">
+    <h2>Still in the library — ${lib.size} cards</h2>
+    <table><thead><tr><th>Card</th><th>Left</th><th>P(next draw)</th><th>P(≥1 by T3)</th><th>P(≥1 by T5)</th><th>P(on curve)</th></tr></thead>
+      <tbody>${libRows}</tbody></table>
+  </div>`;
+}
+
 /* ============================================================
    RENDER
    ============================================================ */
@@ -1621,6 +1855,7 @@ function renderGuide(A){
 function render(){
   captureBars();
   const A=analyse();
+  gfMarkStale(A);
   renderGuide(A);
   renderConflicts(A); renderGlance(A);
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
@@ -1961,8 +2196,25 @@ function renderMethod(A){
   Verges produces only base colours. Your enabler count is basics plus any nonbasic that has a basic land <i>type</i> —
   shocklands, surveil lands and triomes qualify; Pathways, fastlands and painlands do not.</div>
 
+  <h3>6. Goldfish — conditional, per hand</h3>
+  <div class="note">Everything above judges the <i>deck</i>. The Goldfish tab judges a <i>hand</i>, and needs a different shape of answer: not "how many white sources do you need" but "given these seven cards and this library, what are the odds".
+  <br><br>Each hand comes from its own seeded shuffle, and its seed is shown, so any hand can be dealt again exactly. Percentages are computed from the <b>composition of what is left</b> — the deck minus what you have seen — never from the shuffled order. That distinction is the whole game: reading the order would make every number 0% or 100%, which is not a probability, it is the answer key. The order is consulted for exactly one thing, deciding which card the Draw button turns over.
+  <br><br>On-curve chance for a card of mana value <i>m</i> is
+  <br>&nbsp;&nbsp;<b>P(you hold it) × P(you have <i>m</i> lands by turn <i>m</i>) × P(the colours are there, given the lands)</b>.
+  <br>The third factor is the one that has to be right, and it is computed as P(sources <i>and</i> lands) ÷ P(lands) over a disjoint three-way split of the library — lands that make the colour, other lands, everything else. Multiplying an unconditional colour probability by the land probability instead would double-count the land requirement and understate the answer badly; it is the same trap described in panel 2, and the disjoint split is what lets duals and taplands fall in the right bucket without breaking the maths.
+  <br><br><b>Cross-check.</b> Feeding the re-derived table's own source counts back through this formula returns 88–94% castability, essentially flat across one to three pips and turns one to seven. Those counts came out of a Monte Carlo that shares no code with this calculation, so the closed form and the simulation agree independently — and the <i>flatness</i> is the real evidence, because getting the conditioning wrong makes the figure drift with turn number rather than hold level.</div>
+
+  <h3>7. Hand scores are a heuristic, and are shown as one</h3>
+  <div class="note">There is no closed form for "should I keep this". So rather than hide a judgement call behind one number, the score is five weighted components, each reported separately with its own reasoning: land count (35), whether the hand keeps acting through turn four (22), mean on-curve chance across its spells (25), curve spread (8), and absence of dead cards (10). A 62 should be readable as <i>why</i> it is a 62, and you can move the keep threshold if you disagree with where the line sits.
+  <br><br>Land count is judged against <i>your</i> deck's ratio, not a fixed 3–4 band — a 17-land aggro deck and a 26-land control deck do not want the same opener. Being a land short is penalised harder than being a land long, because a flooded hand still casts its spells eventually and a land-light hand may never cast anything.
+  <br><br>The "keeps acting" component measures the probability of having a play on each of turns one to four, with spells consumed as they are cast. An earlier version scored the <i>earliest</i> turn with a play and kept 79% of one-land hands, because a turn-one one-drop collected full marks no matter what followed. Casting one spell and then doing nothing is a mulligan, and the metric has to be able to see that.</div>
+
   <h3>Known limitations</h3>
   <div class="note">
+  · <b>Goldfish:</b> colours are combined by multiplying their conditional factors, which assumes independence between colours. Exact for a single-coloured requirement, an approximation for a gold card — and the same approximation the colour table above already makes.<br>
+  · <b>Goldfish:</b> a Verge counts only for its unconditional colour here. Its conditional half depends on a land being in play, which cannot be expressed as a whole number in this calculation, so it is left out rather than guessed at — deliberately erring low.<br>
+  · <b>Goldfish:</b> land drops are not sequenced, so a tapland is treated as producing mana on the turn it is played. This is optimistic. Modelling it properly needs a play policy deciding which land to lead on, which is a much larger piece of machinery.<br>
+  · <b>Goldfish:</b> hands are scored as dealt. Mulligans are reported as the share you would ship, not simulated as a London chain down to five, so there is no auto-bottoming heuristic to disagree with.<br>
   · Fetchlands are resolved against <i>your</i> land base: a fetch counts for a colour only if this deck actually runs a land it can retrieve producing that colour. Still slightly generous — fetches cost life, can be Blood Moon'd, and thin at the cost of a shuffle.<br>
   · Fetches that put the land onto the battlefield tapped (Evolving Wilds, Fabled Passage) are excluded from the untapped-source count.<br>
   · Restricted-use lands (Castle Doom, Cavern of Souls, Spire of Industry) count only toward spells that satisfy the restriction. Where the restriction cannot be checked against a type line — "multicolored", Cavern's chosen creature type — the source is not counted at all, deliberately erring low.<br>
@@ -1973,6 +2225,53 @@ function renderMethod(A){
   · Hybrid pips are counted as fractional requirements across each colour, which is an approximation.<br>
   · The colour table assumes 24 lands. Very low or very high land counts shift it slightly.
   </div>`;
+}
+
+/* ---- goldfish rendering ---------------------------------------------------
+
+   GF owns its own state and its own render path. render() never calls
+   renderGoldfish, because render() rebuilds panels with innerHTML on every
+   keystroke and would wipe a drilled-in hand mid-draw. All render() does is
+   stamp GF.stale so the panel can say the results no longer match the list.
+
+   Results are session-only and deliberately absent from snapshotState(): a
+   bulk run must never travel in an export or make a saved build look dirty. */
+
+function gfRun(){
+  const A = analyse();
+  GF_SIG = gfSig(A);
+  const v = validateDeck(A.cards, A.unknown, A.N);
+  GF.drill=null; GF.shown=100;
+  if(!v.ok){ GF.errors=v.errors; GF.scored=[]; GF.stats=null; GF.stale=false; renderGoldfish(); return; }
+  GF.errors=null;
+  GF.deck = expandDeck(A.cards);
+  GF.ctx  = {N:A.N, landCount:A.landCount,
+             keepPlay:+$('gfKeepPlay').value||52, keepDraw:+$('gfKeepDraw').value||46};
+  const instances = runBulk(GF.deck, (+$('gfSeed').value||1)>>>0, +$('gfCount').value||500);
+  GF.scored = scoreAll(instances, GF.deck, GF.ctx);
+  GF.stats  = bulkStats(GF.scored);
+  GF.stale  = false;
+  renderGoldfish();
+}
+
+function renderGoldfish(){
+  const out = $('gfOut');
+  if(GF.errors){
+    out.innerHTML = `<div class="card"><h2>Cannot simulate this list</h2>` +
+      GF.errors.map(e=>`<div class="flag" style="margin-top:8px">${e}</div>`).join('') + `</div>`;
+    return;
+  }
+  if(!GF.scored.length){
+    out.innerHTML = `<div class="card">` + empty('No hands dealt yet',
+      'Press “Deal hands” and this panel deals that many opening sevens, each from its own seeded shuffle of '+
+      'your list. You get the share you would ship back on the play and on the draw, how the land counts landed, '+
+      'and a scored list of every hand. Open any one of them to draw through it card by card and watch the odds '+
+      'for everything still in your library update as you go.') + `</div>`;
+    return;
+  }
+  out.innerHTML = (GF.stale ? `<div class="gfstale"><b>The decklist changed.</b> These hands were dealt from the
+    previous list — deal again to refresh them.</div>` : '')
+    + (GF.drill===null ? gfBulkHTML() : gfDrillHTML());
 }
 
 /* ============================================================
@@ -2188,8 +2487,40 @@ async function lookup(){
 $('tabs').addEventListener('click',e=>{
   if(e.target.tagName!=='BUTTON') return;
   [...$('tabs').children].forEach(b=>b.classList.toggle('on',b===e.target));
-  ['verdict','lands','colors','curve','copies','payoffs','method'].forEach(t=>
+  ['verdict','lands','colors','curve','copies','payoffs','goldfish','method'].forEach(t=>
     $('p-'+t).classList.toggle('hide', t!==e.target.dataset.t));
+});
+
+/* Goldfish wiring. Every handler re-renders ONLY the goldfish panel — the tab
+   has to survive render()'s per-keystroke innerHTML rebuild of everything else,
+   so it must never route through it. */
+$('gfRun').addEventListener('click', gfRun);
+$('gfReseed').addEventListener('click',()=>{
+  $('gfSeed').value = Math.floor(Math.random()*1e9);
+  if(GF.scored.length) gfRun();
+});
+['gfKeepPlay','gfKeepDraw'].forEach(id=>$(id).addEventListener('change',()=>{
+  // Re-score in place rather than redealing: the same hands, judged differently.
+  if(!GF.scored.length) return;
+  GF.ctx.keepPlay=+$('gfKeepPlay').value||52;
+  GF.ctx.keepDraw=+$('gfKeepDraw').value||46;
+  GF.scored = scoreAll(GF.scored.map(r=>r.inst), GF.deck, GF.ctx);
+  GF.stats  = bulkStats(GF.scored);
+  renderGoldfish();
+}));
+$('gfOut').addEventListener('click',e=>{
+  const row = e.target.closest('[data-gi]');
+  if(row){ GF.drill=+row.dataset.gi; renderGoldfish(); return; }
+  const id = e.target.id;
+  if(id==='gfBack'){ GF.drill=null; renderGoldfish(); }
+  else if(id==='gfMore'){ GF.shown+=100; renderGoldfish(); }
+  else if(id==='gfToggle'){ GF.onPlay=!GF.onPlay; renderGoldfish(); }
+  else if(id==='gfDraw'){ drawOne(GF.scored[GF.drill].inst, GF.deck); renderGoldfish(); }
+  else if(id==='gfReset'){
+    const i=GF.scored[GF.drill].inst;
+    i.drawn=0; i.hand=i.order.slice(0,i.handSize);
+    renderGoldfish();
+  }
 });
 $('addUB').addEventListener('click',()=>{addPayoff('ub');markDirty();});
 $('addGB').addEventListener('click',()=>{addPayoff('gb');markDirty();});

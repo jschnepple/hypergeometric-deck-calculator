@@ -1,11 +1,12 @@
 # MTG Deck Consistency Calculator
 
-A single-file browser tool for tuning Magic: The Gathering decklists. Answers four questions with actual probability rather than intuition:
+A single-file browser tool for tuning Magic: The Gathering decklists. Answers five questions with actual probability rather than intuition:
 
 - **How many lands should I play?**
 - **How many colored sources of each color do I need?**
 - **How many copies of a card should I run?**
 - **What are the odds my dig effects find what they're looking for?**
+- **How often would I mulligan, and what do my keepable hands look like?**
 
 No install, no build step, no server. One HTML file.
 
@@ -23,6 +24,7 @@ No install, no build step, no server. One HTML file.
 | **Mana Curve** | Curve histogram, archetype fit, how curve changes color requirements |
 | **How Many Copies** | P(≥1 by turn N) at 1/2/3/4 copies — what the 3rd and 4th copy actually buy |
 | **Payoffs** | Odds that dig effects hit, plus tension analysis when two effects want different cards |
+| **Goldfish** | Deals hundreds of opening hands, scores each on the play and on the draw, and opens any one of them for card-by-card draws with live odds |
 | **Method** | Full derivation and known limitations |
 
 Paste a decklist, hit **Look up costs (Scryfall)**, and everything recalculates as you type.
@@ -46,6 +48,16 @@ Proof the conditioning is necessary: the unconditional model *saturates* — no 
 **Fetchlands** are resolved against your own land base. Scryfall reports no mana at all for a fetch, so counting `produced_mana` makes Misty Rainforest a land that produces nothing — ruinous for any deck on eight or more fetches. Instead the tool works out what your deck can actually retrieve: a Misty Rainforest in a deck with no Islands is not a blue source, and a Polluted Delta picks up red if you run a Volcanic Island. Fetches that put the land in tapped are kept out of the untapped count.
 
 **Restricted-use lands** — Castle Doom, Cavern of Souls, Spire of Industry — add any colour and then restrict what it can pay for, with nothing in Scryfall's data to signal it. Each requirement is checked against the spell that drives it, so the same land can count toward one and not another. When the restriction can't be verified against a type line, it doesn't count: understating a restricted land costs you a land you didn't need, overstating it costs you the game.
+
+**Goldfishing** asks a different shape of question — not "how many sources does the deck need" but "given these seven cards and this library, what are the odds". Each hand is dealt from its own seeded shuffle, and the seed is shown, so any hand can be dealt again exactly.
+
+Percentages come from the **composition of what's left** — the deck minus what you've seen — never from the shuffled order. That distinction is the whole thing: reading the order would make every number 0% or 100%, which isn't a probability, it's the answer key. The order decides exactly one thing, which card the Draw button turns over.
+
+On-curve chance for a card of mana value *m* is `P(you hold it) × P(m lands by turn m) × P(colors | lands)`. The third factor is computed as `P(sources AND lands) ÷ P(lands)` over a disjoint three-way split of the library — lands making the color, other lands, everything else. Multiplying an *unconditional* color probability by the land probability would double-count the land requirement, the same trap described above; the disjoint split is what lets duals and taplands fall in the right bucket without breaking the math.
+
+Feeding the re-derived table's own source counts back through this formula returns 88–94% castability, essentially flat across one to three pips and turns one to seven. Those counts came from a Monte Carlo sharing no code with this calculation, so closed form and simulation agree independently — and the *flatness* is the evidence, since bad conditioning makes the figure drift with turn number rather than hold level.
+
+**Hand scores are a heuristic and are shown as one:** five weighted components, each reported with its reasoning — land count (35), whether the hand keeps acting through turn four (22), mean on-curve chance (25), curve spread (8), no dead cards (10). A 62 should be readable as *why* it's a 62, and the keep threshold is yours to move. Land count is judged against your deck's own ratio rather than a fixed 3–4 band, since a 17-land aggro deck and a 26-land control deck don't want the same opener.
 
 **Conditional duals (Verges)** are handled specially. Scryfall's `produced_mana` lists both colors with no signal about which is conditional, so counting them naively inflates your off-color by a full source each. The tool parses oracle text instead and discounts the off-color by the probability you control an enabling basic land type. Enablers are counted per permanent — a land carrying both required types (Blood Crypt, Hallowed Fountain) is still one permanent.
 
