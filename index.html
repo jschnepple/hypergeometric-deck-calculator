@@ -1051,6 +1051,482 @@ function renderPayoffs(A){
 }
 
 /* ============================================================
+   GOLDFISH
+   ============================================================ */
+
+/* Seeded PRNG. mulberry32 — 32-bit state, one multiply-xorshift round, passes
+   the small-crush battery that matters here (uniformity and independence of
+   consecutive outputs). Chosen over Math.random for one reason: a hand you
+   cannot reproduce is a hand you cannot debug, and the test suite needs to
+   assert on exact orders rather than settle for statistical hand-waving.
+
+   Seeds are forced through >>>0 so a negative or fractional seed still yields a
+   deterministic stream instead of NaN. */
+function mulberry32(seed){
+  let a = (seed>>>0) || 0x9E3779B9;      // a zero seed would emit a constant
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* Expand a parsed decklist into one entry per physical card.
+
+   Entries are shared references to the parsed card object, not copies: a
+   4-of appears four times as the same object. Nothing downstream mutates a
+   card, and identity comparison is what lets the library tables group by card
+   without string-matching names. */
+function expandDeck(cards){
+  const out=[];
+  for(const c of cards){
+    const n = Math.max(0, Math.floor(c.qty)||0);
+    for(let i=0;i<n;i++) out.push(c);
+  }
+  return out;
+}
+
+/* Fisher-Yates, descending, drawing one random per swap.
+
+   Descending rather than ascending, and j is chosen from [0, i] INCLUSIVE —
+   the two details that separate a uniform shuffle from the subtly biased
+   version that picks from the whole array every time. Returns a new array;
+   the caller's deck order is never touched, so re-running a seed is safe. */
+function shuffle(deck, rng){
+  const a = deck.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(rng()*(i+1));
+    const t=a[i]; a[i]=a[j]; a[j]=t;
+  }
+  return a;
+}
+
+/* Is this decklist fit to simulate?
+
+   Returns {ok, errors[]}. Every failure is reported, not just the first, so a
+   list that is both short and unresolved says so in one pass rather than
+   sending the user round the loop twice. The messages are user-facing copy. */
+function validateDeck(cards, unknown, N){
+  const errors=[];
+  const total  = cards.reduce((s,c)=>s+c.qty,0);
+  const lands  = cards.filter(c=>c.land).reduce((s,c)=>s+c.qty,0);
+  const spells = total - lands;
+
+  if(unknown && unknown.length){
+    const shown = unknown.slice(0,4).join(', ');
+    errors.push(`${unknown.length} card${unknown.length>1?'s':''} could not be resolved (${shown}${unknown.length>4?'…':''}). Run "Look up costs" first — an unresolved card simulates as a colourless 0-drop and would poison every hand.`);
+  }
+  if(total === 0){
+    errors.push('The decklist is empty.');
+  } else if(total !== N){
+    errors.push(`The list holds ${total} cards but deck size is set to ${N}. Goldfishing needs them to agree, because every probability is computed against the real library size.`);
+  }
+  if(total > 0 && lands === 0) errors.push('No lands in the list. Every hand would be unkeepable and no on-curve figure would mean anything.');
+  if(total > 0 && spells === 0) errors.push('No spells in the list. There is nothing to cast and nothing to score.');
+  if(total > 0 && total < 8) errors.push('Fewer than 8 cards — not enough to draw an opening hand and still have a library.');
+
+  return {ok: errors.length===0, errors};
+}
+
+/* One simulated game: a deck shuffled by its own seed, and the 7 it dealt.
+
+   `order` is the full shuffled library. `hand` is the first 7. `drawn` counts
+   cards taken since the opener, so order[7 + drawn] is the next card the Draw
+   button will reveal.
+
+   The order beyond the hand is deliberately NOT consulted when computing
+   probabilities — only its composition is. Peeking would turn every number
+   into 0% or 100%, which is not a statistic, it is the answer key. */
+function dealInstance(deck, seed, handSize){
+  const h = handSize==null ? 7 : handSize;
+  const order = shuffle(deck, mulberry32(seed));
+  return {
+    seed,
+    order,
+    hand:  order.slice(0, h),
+    drawn: 0,
+    handSize: h
+  };
+}
+
+/* The cards still in the library, in composition terms.
+
+   Returns {size, counts} where counts is a Map from card object to how many
+   copies remain. Built by subtracting what is known — the opening hand plus
+   anything drawn — from the full deck, rather than by reading the tail of the
+   order. Same answer, but it makes the honest-odds rule structural instead of
+   a comment someone can forget. */
+function libraryState(inst, deck){
+  const counts = new Map();
+  for(const c of deck) counts.set(c, (counts.get(c)||0) + 1);
+  const seen = inst.order.slice(0, inst.handSize + inst.drawn);
+  for(const c of seen){
+    const n = counts.get(c);
+    if(n === 1) counts.delete(c); else counts.set(c, n-1);
+  }
+  return {size: deck.length - seen.length, counts};
+}
+
+/* Everything currently known to the player: opening hand plus draws so far. */
+function knownCards(inst){
+  return inst.order.slice(0, inst.handSize + inst.drawn);
+}
+
+/* Advance one draw. Mutates `drawn` and extends `hand` from the fixed order —
+   this is the ONE place the shuffled order is allowed to decide anything.
+   Returns the drawn card, or null when the library is out. */
+function drawOne(inst, deck){
+  const idx = inst.handSize + inst.drawn;
+  if(idx >= deck.length) return null;
+  const card = inst.order[idx];
+  inst.drawn++;
+  inst.hand = inst.order.slice(0, inst.handSize + inst.drawn);
+  return card;
+}
+
+/* Deal `count` independent instances from consecutive seeds.
+
+   Consecutive rather than random seeds so a run is reproducible from the base
+   seed alone, and so instance #37 is always instance #37. mulberry32 decorrelates
+   adjacent seeds well enough that seed n and seed n+1 produce unrelated orders —
+   asserted in the tests rather than assumed. */
+function runBulk(deck, baseSeed, count, handSize){
+  const out=[];
+  for(let i=0;i<count;i++) out.push(dealInstance(deck, (baseSeed + i)>>>0, handSize));
+  return out;
+}
+
+/* ---- on-curve probability -------------------------------------------------
+
+   The tool's existing colour model is a THRESHOLD: required(pips,turn) says how
+   many sources you need, sourcesFor() says how many you have, and the UI reports
+   the shortfall. That is a deck-level verdict and it cannot move as you draw.
+
+   What the goldfish needs is a probability, conditioned on a specific hand and
+   a specific remaining library:
+
+       P(on curve) = P(hold the card) x P(enough lands) x P(colours | lands)
+
+   The third factor is the one that has to be got right. Multiplying an
+   unconditional colour probability by the land probability double-counts the
+   land requirement and understates the answer badly — that is the trap flagged
+   in MEMORY.md. So the joint is computed exactly and then divided back out:
+
+       P(colours | lands) = P(sources AND lands) / P(lands)
+
+   P(sources AND lands) is an exact multivariate hypergeometric over a DISJOINT
+   three-way partition of the library — lands that make the colour, other lands,
+   everything else — so duals and taplands land in the right bucket without the
+   overlapping-category problem that forced Karsten to Monte Carlo.
+
+   Colours are combined by multiplying their conditional factors, which assumes
+   independence between colours. That is an approximation, and it is the SAME
+   approximation the rest of the tool already makes (required() is a per-colour
+   table). It is exact for a single-coloured requirement. Documented in Method. */
+
+/* P(at least `needSrc` from A and at least `needLands` from A+B) when drawing
+   `draws` cards from a library of `libSize` partitioned into A (sources, `a`),
+   B (other lands, `b`), and everything else. Double sum, O(draws^2). */
+function pSourcesAndLands(needSrc, needLands, a, b, libSize, draws){
+  if(draws<0 || draws>libSize) return 0;
+  const s0=Math.max(0,needSrc);
+  if(s0>a) return 0;
+  if(Math.max(0,needLands)>a+b) return 0;
+  if(s0===0 && needLands<=0) return 1;
+  const rest=libSize-a-b, den=lnC(libSize,draws);
+  let p=0;
+  for(let s=s0; s<=Math.min(a,draws); s++){
+    const oMin=Math.max(0, needLands-s);
+    for(let o=oMin; o<=Math.min(b, draws-s); o++){
+      const r=draws-s-o;
+      if(r<0 || r>rest) continue;
+      p += Math.exp(lnC(a,s)+lnC(b,o)+lnC(rest,r)-den);
+    }
+  }
+  return Math.max(0, Math.min(1, p));
+}
+
+/* P(colours | lands) for one colour. Returns 1 when no sources are needed, so a
+   colourless requirement contributes nothing. */
+function pColorGivenLands(needSrc, needLands, a, b, libSize, draws){
+  if(needSrc<=0) return 1;
+  const pLands = needLands<=0 ? 1 : hyperAtLeast(needLands, a+b, draws, libSize);
+  if(pLands<=0) return 0;
+  const joint = pSourcesAndLands(needSrc, needLands, a, b, libSize, draws);
+  return Math.max(0, Math.min(1, joint/pLands));
+}
+
+/* Does this card count as a source of `col`?
+
+   Deliberately conservative, matching sourcesFor's stance. A Verge counts for
+   its unconditional colour only — its conditional half needs an enabler in play
+   and cannot be expressed as an integer in a hypergeometric partition, so it is
+   left out rather than guessed at. Restricted mana counts only against a spell
+   that satisfies the restriction. Fetchlands rely on `produces` having already
+   been resolved against the real land base by analyse(). */
+function isSourceOf(card, col, spell){
+  if(!card || !card.land) return false;
+  if(card.verge) return card.verge.base===col;
+  if(!(card.produces||[]).includes(col)) return false;
+  if(card.restriction) return restrictionAllows(card.restriction, spell);
+  return true;
+}
+
+/* The pure form: on-curve probability from raw composition, no instance needed.
+
+   Kept separate from the instance wrapper so it can be checked directly against
+   Karsten's published table — which is exactly what the calibration test does. */
+function onCurveFrom(spell, opts){
+  const {libSize, draws, copiesLeft, held, landsLeft, landsKnown, sourcesLeft, sourcesKnown} = opts;
+  const m = Math.max(1, Math.min(7, Math.round(spell.cmc)||1));
+
+  const pHave = held>0 ? 1 : hyperAtLeast(1, copiesLeft, draws, libSize);
+  const needLands = Math.max(0, m - landsKnown);
+  const pLands = needLands===0 ? 1 : hyperAtLeast(needLands, landsLeft, draws, libSize);
+
+  let pColors = 1;
+  for(const col of COLORS){
+    const pips = Math.ceil(spell.pips&&spell.pips[col] || 0);
+    if(pips<1) continue;
+    const needSrc = Math.max(0, pips - (sourcesKnown[col]||0));
+    if(needSrc===0) continue;
+    pColors *= pColorGivenLands(needSrc, needLands, sourcesLeft[col]||0,
+                                Math.max(0, landsLeft-(sourcesLeft[col]||0)), libSize, draws);
+  }
+  return {turn:m, pHave, pLands, pColors, p: pHave*pLands*pColors};
+}
+
+/* Instance-aware wrapper. Everything is derived from what the player KNOWS —
+   the opening hand plus draws so far — and from the composition of what is
+   left. The shuffled order is never consulted. */
+function onCurve(spell, inst, deck, ctx){
+  const m = Math.max(1, Math.min(7, Math.round(spell.cmc)||1));
+  const seenNow = inst.handSize + inst.drawn;
+  const seenBy  = Math.min(ctx.N, cardsSeen(m, ctx.onPlay));
+  const lib     = libraryState(inst, deck);
+  const draws   = Math.max(0, Math.min(seenBy - seenNow, lib.size));
+  const known   = knownCards(inst);
+
+  const sourcesKnown={W:0,U:0,B:0,R:0,G:0}, sourcesLeft={W:0,U:0,B:0,R:0,G:0};
+  let landsKnown=0, landsLeft=0, held=0;
+  for(const c of known){
+    if(c===spell) held++;
+    if(!c.land) continue;
+    landsKnown++;
+    for(const col of COLORS) if(isSourceOf(c,col,spell)) sourcesKnown[col]++;
+  }
+  for(const [c,n] of lib.counts){
+    if(!c.land) continue;
+    landsLeft+=n;
+    for(const col of COLORS) if(isSourceOf(c,col,spell)) sourcesLeft[col]+=n;
+  }
+
+  return onCurveFrom(spell, {
+    libSize: lib.size, draws, copiesLeft: lib.counts.get(spell)||0, held,
+    landsLeft, landsKnown, sourcesLeft, sourcesKnown
+  });
+}
+
+/* P(draw at least one copy of `card` within the next `n` draws). The plain
+   figure the library table shows, computed on composition alone. */
+function pDrawWithin(card, inst, deck, n){
+  const lib = libraryState(inst, deck);
+  const left = lib.counts.get(card)||0;
+  return hyperAtLeast(1, left, Math.max(0,Math.min(n, lib.size)), lib.size);
+}
+
+/* ---- hand scoring ---------------------------------------------------------
+
+   A heuristic, and presented as one. There is no closed form for "should I keep
+   this", so instead of hiding a judgement call behind a single number, the score
+   is assembled from five weighted components that are each reported separately.
+   A 62 should be readable as WHY it is a 62.
+
+   Component three is the only one that does real probability work, and it does
+   it by calling onCurve rather than reimplementing the colour maths — one source
+   of truth, already cross-validated against the DERIVED table. The other four
+   are shape judgements that no hypergeometric can express. */
+const HAND_W = { lands:35, early:22, curve:25, spread:8, dead:10 };
+
+/* Land count, scored against the deck's OWN ratio rather than a fixed 3-4 band.
+   A 17-land aggro deck and a 26-land control deck do not want the same opener,
+   and judging both against "3 or 4" would libel one of them.
+
+   The falloff is asymmetric on purpose: being a land short is worse than being a
+   land long, because a flooded hand still casts its spells eventually and a
+   land-light hand may never cast anything. */
+const LAND_CURVE = {'-3':0, '-2':0.14, '-1':0.62, '0':1, '1':0.94, '2':0.52, '3':0.18, '4':0.02};
+function scoreLands(lands, handSize, landCount, N, onPlay){
+  if(lands===0 || lands===handSize) return 0;           // no mana, or nothing to cast
+  const ideal = Math.max(2, Math.round(handSize * (landCount/N)));
+  const d = Math.max(-3, Math.min(4, lands-ideal));
+  let s = LAND_CURVE[String(d)];
+  /* On the draw you see an extra card by turn one, which rescues land-light
+     hands specifically. It does nothing for a flooded hand, so the bonus is
+     applied on the short side only. */
+  if(!onPlay && d<0) s = s + (1-s)*0.12;
+  return s;
+}
+
+/* The earliest turn this hand can deploy anything. Reported for the UI note;
+   NOT used as a score, for the reason documented on `deployment` below. */
+function firstPlayTurn(hand, deck, inst, ctx){
+  const lands = hand.filter(c=>c.land).length;
+  let best = Infinity;
+  for(const c of hand){
+    if(c.land) continue;
+    const m = Math.max(1, Math.round(c.cmc)||1);
+    // a spell the deck can never produce colours for is not a play at all
+    if(onCurve(c, inst, deck, ctx).pColors<=0) continue;
+    const t = lands>=m ? m : m + (m-lands);
+    if(t<best) best=t;
+  }
+  return best;
+}
+
+/* P(you have at least `t` lands available on turn `t`), given what is known. */
+function pLandsBy(t, inst, deck, ctx){
+  const known = knownCards(inst);
+  const landsKnown = known.filter(c=>c.land).length;
+  const need = Math.max(0, t - landsKnown);
+  if(need===0) return 1;
+  const lib = libraryState(inst, deck);
+  let landsLeft=0;
+  for(const [c,n] of lib.counts) if(c.land) landsLeft+=n;
+  const draws = Math.max(0, Math.min(cardsSeen(t, ctx.onPlay) - (inst.handSize+inst.drawn), lib.size));
+  return hyperAtLeast(need, landsLeft, draws, lib.size);
+}
+
+/* Deployment through turn four — can this hand keep ACTING, not just act once?
+
+   The first version of this scored the earliest turn a play was available, and
+   it was badly wrong: a hand of one Plains and two one-drops "plays on turn 1"
+   and collected full marks, so 79% of one-land hands came back as keeps. Casting
+   a one-drop and then doing nothing for four turns is a mulligan, and any metric
+   that cannot see that is measuring the wrong thing.
+
+   So each of turns 1-4 is scored by the PROBABILITY of having a play then —
+   which is the probability of having the lands, since the spells are known.
+   Spells are consumed as they are cast, so two one-drops cannot cover four
+   turns. Turns 2 and 3 are weighted highest: that is where games are decided,
+   and where a land-light hand's story falls apart. */
+const DEPLOY_W = {1:1.0, 2:1.3, 3:1.1, 4:0.8};
+function deployment(hand, inst, deck, ctx){
+  const pool = hand.filter(c=>!c.land && onCurve(c, inst, deck, ctx).pColors>0)
+                   .map(c=>Math.max(1, Math.round(c.cmc)||1))
+                   .sort((a,b)=>a-b);
+  const used = new Array(pool.length).fill(false);
+  const turns=[];
+  let num=0, den=0;
+  for(let t=1;t<=4;t++){
+    const w = DEPLOY_W[t];
+    den += w;
+    // cast the most expensive spell that fits — cheap ones stay available later
+    let pick=-1;
+    for(let i=pool.length-1;i>=0;i--){ if(!used[i] && pool[i]<=t){ pick=i; break; } }
+    const p = pick<0 ? 0 : pLandsBy(Math.max(1,pool[pick]), inst, deck, ctx);
+    if(pick>=0) used[pick]=true;
+    num += w*p;
+    turns.push({turn:t, p, mv: pick<0?null:pool[pick]});
+  }
+  return {score: den>0?num/den:0, turns};
+}
+
+/* Score one opening hand. `onPlay` is passed in rather than read from state so
+   the same instance can be scored both ways from the same shuffle. */
+function scoreHand(inst, deck, ctx){
+  const hand = inst.order.slice(0, inst.handSize);
+  const handSize = inst.handSize;
+  const lands = hand.filter(c=>c.land).length;
+  const spells = hand.filter(c=>!c.land);
+  const comps = [];
+
+  // 1. land count
+  const vLands = scoreLands(lands, handSize, ctx.landCount, ctx.N, ctx.onPlay);
+  const ideal = Math.max(2, Math.round(handSize*(ctx.landCount/ctx.N)));
+  comps.push({key:'lands', label:'Land count', value:vLands, weight:HAND_W.lands,
+              note:`${lands} land${lands===1?'':'s'} — this deck wants about ${ideal}`});
+
+  // 2. deployment through turn four
+  const dep = deployment(hand, inst, deck, ctx);
+  const fp = firstPlayTurn(hand, deck, inst, ctx);
+  const liveTurns = dep.turns.filter(t=>t.p>=0.5).length;
+  comps.push({key:'early', label:'Keeps acting', value:dep.score, weight:HAND_W.early,
+              note: fp===Infinity ? 'nothing castable in this hand'
+                  : `first play turn ${fp}; ${liveTurns} of turns 1-4 likely to have one`,
+              turns: dep.turns});
+
+  /* 3. on-curve probability across the hand's spells.
+
+     Weighted EQUALLY, not toward the cheap end. Weighting by 1/mv was the second
+     half of the one-land bug: a one-drop's land requirement is trivially met, so
+     cheap spells scored near 1.0 and, being the heaviest weighted, dragged the
+     whole component up on exactly the hands that deserved it least. */
+  let num=0, den=0, curveDetail=[];
+  for(const c of spells){
+    const r = onCurve(c, inst, deck, ctx);
+    num += r.p; den += 1;
+    curveDetail.push({card:c, p:r.p, turn:r.turn});
+  }
+  const vCurve = den>0 ? num/den : 0;
+  comps.push({key:'curve', label:'Castable on curve', value:vCurve, weight:HAND_W.curve,
+              note: den>0 ? `mean across ${spells.length} spell${spells.length===1?'':'s'}` : 'no spells to cast'});
+
+  // 4. curve spread — four copies of the same slot is not a curve
+  const distinct = new Set(spells.map(c=>Math.min(7, Math.round(c.cmc)))).size;
+  const vSpread = spells.length<=1 ? (spells.length===1?1:0)
+                                   : Math.min(1, distinct/Math.min(spells.length, 4));
+  comps.push({key:'spread', label:'Curve spread', value:vSpread, weight:HAND_W.spread,
+              note:`${distinct} distinct mana value${distinct===1?'':'s'} across ${spells.length} spell${spells.length===1?'':'s'}`});
+
+  // 5. dead cards — colours this deck cannot support at all
+  const dead = curveDetail.filter(d=>d.p<=0).length;
+  const vDead = spells.length ? 1-(dead/spells.length) : 1;
+  comps.push({key:'dead', label:'No dead cards', value:vDead, weight:HAND_W.dead,
+              note: dead ? `${dead} card${dead===1?'':'s'} this deck cannot cast` : 'every card is castable'});
+
+  let score=0;
+  for(const c of comps){ c.points = c.value*c.weight; score += c.points; }
+  score = Math.max(0, Math.min(100, score));
+
+  const threshold = ctx.keepThreshold!=null ? ctx.keepThreshold : (ctx.onPlay?52:46);
+  return {
+    score, comps, lands, spells: spells.length, firstPlay: fp===Infinity?null:fp,
+    keep: score>=threshold, threshold,
+    label: score>=76 ? 'Snap keep' : score>=threshold ? 'Keep'
+         : score>=threshold-10 ? 'Marginal' : 'Ship'
+  };
+}
+
+/* Score every instance both ways, from the same shuffle. The play and draw
+   columns are therefore strictly comparable — same 60 cards, same order, same
+   seven — differing only in how many cards the model knows are coming. */
+function scoreAll(instances, deck, ctx){
+  return instances.map(inst=>({
+    inst,
+    play: scoreHand(inst, deck, Object.assign({}, ctx, {onPlay:true,  keepThreshold:ctx.keepPlay})),
+    draw: scoreHand(inst, deck, Object.assign({}, ctx, {onPlay:false, keepThreshold:ctx.keepDraw}))
+  }));
+}
+
+/* Headline figures for a bulk run. */
+function bulkStats(scored){
+  const n = scored.length || 1;
+  const mean = k => scored.reduce((s,r)=>s+r[k].score,0)/n;
+  const ship = k => scored.filter(r=>!r[k].keep).length/n;
+  const landHist = {};
+  for(const r of scored) landHist[r.play.lands] = (landHist[r.play.lands]||0)+1;
+  return {
+    count: scored.length,
+    meanPlay: mean('play'), meanDraw: mean('draw'),
+    shipPlay: ship('play'), shipDraw: ship('draw'),
+    landHist
+  };
+}
+
+/* ============================================================
    RENDER
    ============================================================ */
 const $=id=>document.getElementById(id);

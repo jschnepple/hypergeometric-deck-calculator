@@ -12,7 +12,8 @@ const HTML = path.join(__dirname, '..', 'index.html');
 const SECTIONS = {
   math:        ['MATH CORE',   'PARSING'],
   parsing:     ['PARSING',     'ANALYSIS'],
-  payoffs:     ['DIG PAYOFFS', 'RENDER'],
+  payoffs:     ['DIG PAYOFFS', 'GOLDFISH'],
+  goldfish:    ['GOLDFISH',    'RENDER'],
   persistence: ['PERSISTENCE', 'SCRYFALL'],
 };
 
