@@ -5,6 +5,7 @@ Read `CLAUDE.md` first for current state and conventions.
 
 | Date | File | Summary |
 |---|---|---|
+| 2026-08-19 | [sideboard](memory/2026-08-19-sideboard.md) | Sideboards, named sideboard variants, and the Compare tab. A variant is a live **diff** against the maindeck, not a copy, so it follows the deck as you tune it; a stale swap marks the variant broken rather than half-applying. Found a live bug on the way — `parseList` skipped the `Sideboard` header and kept parsing, so every pasted export had its sideboard folded into the maindeck. Made `analyse()` pure to get there, which finally put the ANALYSIS section under test. The comparison separates exact figures from sampled ones, gives the sampled ones common random numbers and an explicit noise band, and refuses to invent a "best variant" score. 445 → 747 tests, plus a first-of-its-kind jsdom test that boots the real page and clicks through it. An adversarial review of the finished, all-green diff then found eight more bugs, every one of them living in the *seam* between two individually-correct functions. |
 | 2026-08-12 | [goldfish](memory/2026-08-12-goldfish.md) | The opening-hand simulator. Seeded per-hand shuffles, keepability scored on the play and on the draw, drill-in with card-by-card draws and live conditional odds. Defined the on-curve probability that the tool never actually had — `P(hold) × P(lands) × P(colours\|lands)`, the last computed exactly and divided back out to avoid double-counting the land requirement. Feeding `DERIVED`'s own source counts back through it returns 0.88–0.94 flat across the grid: closed form and Monte Carlo agreeing independently. Found two real scorecard bugs (one-land hands kept 79% of the time) and four test bugs. 221 → 445 tests. |
 | 2026-08-11 | [glassmorphism-overhaul](memory/2026-08-11-glassmorphism-overhaul.md) | The visual pass. Token system, three-elevation glass over a fixed bloom backdrop, motion built to survive a per-keystroke `innerHTML` rebuild, contrast solved numerically rather than by eye. Functionality untouched, 221 tests green throughout. Two findings that will bite anyone who forgets them: nested surfaces need a *dark* overlay, and CSS transitions are dead code on elements this app recreates every keystroke. |
 | 2026-08-11 | [first-real-decklist](memory/2026-08-11-first-real-decklist.md) | Recovered the project into git and pushed it, then loaded Jeff's Barrel Boys brew — the first real decklist. That alone found **seven** bugs: lands counted as ramp/draw, shocklands read as tapped, split/DFC cards failing Scryfall lookup entirely, MDFC lands counted as lands, fetchlands contributing zero colour, restricted-use mana counted as unrestricted, and MDFC type lines leaking the back face. All fixed; 152 → 221 tests. |
@@ -12,15 +13,19 @@ Read `CLAUDE.md` first for current state and conventions.
 
 ## Next intent
 
-Nothing queued. Open choices: mobile layout, card-name autocomplete, a sample-deck
-gallery, or closing a modelling gap. The goldfish added three of its own worth
-weighing against the older ones — sequencing land drops so taplands cost a turn
-(the largest and most valuable), a London mulligan chain with auto-bottoming, and
-Verge conditional halves in the hypergeometric partition.
+Nothing queued. Mobile layout has moved up the list: the compare matrix is now the
+widest thing in the app and the only part of it that has never been looked at on a
+narrow screen. Other open choices: card-name autocomplete, a sample-deck gallery,
+or closing a modelling gap. The goldfish added three of its own worth weighing
+against the older ones — sequencing land drops so taplands cost a turn (the largest
+and most valuable), a London mulligan chain with auto-bottoming, and Verge
+conditional halves in the hypergeometric partition.
 
 Older gaps still open: mana rocks and dorks uncounted, X spells reading as MV 0,
 split-card pips summed.
 
+- [plan-sideboard](memory/plan-sideboard.md) — **DONE**, session 5. Kept because the
+  agreed decisions and their reasoning are still the spec for that feature.
 - [plan-goldfish](memory/plan-goldfish.md) — **DONE**, session 4. Kept because the
   agreed decisions and their reasoning are still the spec for that tab.
 - [next-session-prompt-glassmorphism](memory/next-session-prompt-glassmorphism.md) —
@@ -65,7 +70,29 @@ split-card pips summed.
   keystroke and would wipe a drilled-in hand mid-draw. Its only goldfish job is
   `gfMarkStale()`.
 - **Pure view builders belong in a testable slice.** `gfBulkHTML`/`gfDrillHTML`
-  sit in `GOLDFISH` rather than `RENDER` for exactly this reason: a broken
-  template literal does not throw, it renders `undefined` inside a percentage.
+  sit in `GOLDFISH` and the comparison builders in `COMPARE`, rather than in
+  `RENDER`, for exactly this reason: a broken template literal does not throw, it
+  renders `undefined` inside a percentage.
+- **A sideboard variant is a DIFF against the maindeck, and a stale diff is
+  refused, not half-applied.** `applyVariant` returns errors and the variant is
+  marked broken. Half a swap gives a confident answer about a deck that does not
+  exist, which is the failure mode this project keeps rediscovering.
+- **Sampled figures never get coloured unless they clear their own noise band.**
+  Variants are compared under common random numbers and any difference inside
+  `2·√(SE₁²+SE₂²)` renders grey. Exact figures — curve, sources, land count,
+  payoff odds — carry no such caveat, and the Compare tab keeps the two kinds of
+  number visually distinct on purpose.
+- **`extract.js` slices on banner comments, so adding a section means editing
+  `SECTIONS`.** The slice *before* the new banner has to be re-pointed to end at
+  it, or it silently swallows everything you just added. `SIDEBOARD` and
+  `COMPARE` were added this way in session five.
+- **Green is not finished — read the diff adversarially before wrapping up.**
+  Session five's feature passed 703 tests including a jsdom run that clicked
+  through the whole flow, and a review of the diff still found eight real bugs.
+  All eight sat in the *seam* between two functions that were each individually
+  correct and individually tested: one call site updated and another missed, a
+  signature that summarised away what it needed to detect, a figure computed by
+  one expression and applied by another. Unit tests are structurally blind to
+  that class.
 - **Commit before wrapping up.** Session one didn't, and session two opened with a
   recovery operation from a previous session's scratch directory.

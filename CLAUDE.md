@@ -32,6 +32,9 @@ tests/              node test suite, no dependencies
   extract.js        pulls sections out of index.html
   harness.js        tiny assertion helpers
   *.test.js         one file per concern
+  dom.test.js       the exception: boots the real page in jsdom and clicks it.
+                    Skips itself with a message if jsdom is absent, so the
+                    zero-dependency promise holds on a clean checkout.
 decks/              real decklists + their written analyses
 research/mana-engine/  Python Monte Carlo that derived the conditional
                     Karsten table. Not runtime code — this is the provenance
@@ -40,8 +43,9 @@ memory/             session memories
 MEMORY.md           index of memories
 ```
 
-`index.html` is organised by banner comments (`MATH CORE`, `PARSING`, `ANALYSIS`,
-`DIG PAYOFFS`, `GOLDFISH`, `RENDER`, `PERSISTENCE`, `SCRYFALL`, `WIRING`). **The
+`index.html` is organised by banner comments (`MATH CORE`, `PARSING`, `SIDEBOARD`,
+`ANALYSIS`, `DIG PAYOFFS`, `GOLDFISH`, `COMPARE`, `RENDER`, `PERSISTENCE`,
+`SCRYFALL`, `WIRING`). **The
 tests slice on those banners** — rename one and `tests/extract.js` will fail loudly
 with the banner name. That is intentional. Adding a banner means editing
 `SECTIONS`: the slice before it must be re-pointed to end at the new name, or it
@@ -50,7 +54,8 @@ silently swallows everything you just added.
 ## Testing
 
 ```bash
-node tests/run-all.js      # 445 tests, ~10s, zero dependencies
+node tests/run-all.js      # 747 tests, ~12s, zero dependencies
+npm install jsdom          # optional; adds 53 more from dom.test.js
 ```
 
 Tests run against the **shipped** `index.html`, not a copy — `extract.js` pulls the
@@ -222,13 +227,99 @@ most valuable one to close), Verge conditional halves are excluded from the
 partition, and mulligans are reported as a ship rate rather than simulated as a
 London chain.
 
-## Current state — 2026-08-12 (session 4)
+## Sideboards and variants
 
-**Done.** 445 tests green. Session 2 loaded the first real decklist and fixed seven
-manabase bugs; session 3 was the glassmorphism pass with functionality frozen;
-session 4 added the Goldfish tab and, in doing so, produced the strongest
-cross-validation the mana math has had — the closed-form conditional model and the
-`research/mana-engine` Monte Carlo agreeing to ~2 points across the whole grid.
+Added in session 5 (`memory/2026-08-19-sideboard.md`, planned in
+`memory/plan-sideboard.md`). A sideboard is parsed out of the same textarea, and
+a "variant" is a named sideboard plan you can switch the whole page over to and
+compare against the maindeck.
+
+- **A variant is a diff, not a copy.** `{out, in, qty}` swaps applied to the
+  maindeck. A copy is correct only until you next tune the deck, which is never
+  long; the diff also reads back as the sentence you want ("−2 Cut Down,
+  +2 Duress"). The price is staleness, handled by `applyVariant` returning
+  errors and the variant being marked **broken** rather than analysed with half
+  a swap applied.
+- **A broken variant returns a full analysis SHAPE, empty** (`analyseVariant`
+  builds `analyseCards([],[],o)` and stamps `broken` on it). Every render
+  function already handles `total===0`; without this, a broken variant would
+  throw somewhere deep inside whichever panel happened to be open.
+- **`analyse()` is pure now, and ANALYSIS is testable for the first time.** The
+  six DOM reads moved into `readInputs()` in RENDER. `analyseCards(cards,
+  unknown, opts)` is the old body verbatim. This is what lets one code path
+  serve the maindeck and every variant; it is also why `tests/analysis.test.js`
+  exists at all.
+- **Sideboard splitting fixed a live bug.** `parseList` skips a `Sideboard`
+  header line and keeps parsing, so every pasted Moxfield/Arena export was
+  silently analysing 75 cards as the maindeck. `splitList` runs first now.
+  Regression-tested in `sideboard.test.js`.
+- **No blank-line heuristic, deliberately.** Blank lines separate spells from
+  lands in mainboard lists constantly — the demo deck does it. An explicit
+  header (`Sideboard`, `//Sideboard`, `SIDEBOARD:`, `SB:` per line) or nothing.
+- **`cloneCard` is load-bearing.** `produces` and `subtypes` are shared
+  references off the DB record and `analyse` *reassigns* `produces` for
+  fetchlands. Without the clone a variant could rewrite what the baseline column
+  says about the maindeck.
+- **Both ends of a swap are dropdowns.** That makes "the card coming in must be
+  in the sideboard" true by construction rather than validated afterwards, and
+  removes typos as a source of breakage.
+- **Deterministic vs sampled is the organising distinction of the Compare tab.**
+  Curve, sources, land count and payoff odds are exact — any difference is real.
+  Keep rates are Monte Carlo. Those get common random numbers (every variant
+  dealt from the same base seed) plus a noise band computed **per cell**:
+  differences inside `2·√(SE₁²+SE₂²)` render grey and say "noise", with the band
+  in the tooltip. Per cell, not one figure for the table — rates near 50% are
+  noisier than rates near 90%, and quoting a single band contradicts the test
+  actually applied (it did, in the first version). The mean-score row uses
+  `sd/√n`, which is why `cmpSim` carries `sdPlay`/`sdDraw`: a mean is not a
+  proportion and colouring it unconditionally asserts findings that aren't there.
+  CRN makes the true paired error smaller than these bounds, so they are
+  conservative on purpose.
+- **`cmpSig` hashes the whole card list, like `gfSig`.** Summary figures are not
+  enough for staleness: swapping one two-mana instant for another leaves total,
+  land count and average mana value all identical, and the previous run's keep
+  rates would sit on screen labelled current.
+- **`applyVariant` merges duplicate entries and tags every problem with a
+  `kind`.** `findCard` returns the first match, so a card split across two lines
+  ("2 Abrade" twice, which real exports do) would otherwise break legal swaps.
+  The `kind` tag is what keeps a half-filled editor row (`noop`) and a maindeck
+  that already ran five of something out of the Compare tab's regression
+  headline — that panel answers "what does sideboarding cost you", so only
+  swap-caused problems belong in it.
+- **`analyseVariant` recomputes `unknown` from its own cards** (`unknownIn`).
+  Reusing the maindeck's list let a variant board in an unresolved card and
+  still pass `validateDeck`, simulating it as a colourless 0-drop — the exact
+  thing that check exists to prevent.
+- **`parseDeckCached` keys on text *and* `DB`.** A Scryfall lookup changes what
+  identical text parses into; `lookup()` also clears `PD_VAL` explicitly.
+- **No aggregate "best variant" score, ever.** There is no defensible weighting
+  between a point of colour consistency and a point of payoff probability. The
+  panel names *regressions* instead — which plan drops a colour under its
+  requirement — because that is the actual decision the player is making.
+- **Direction is per metric, not per sign.** `cmpTone(dir, …)` takes
+  `up`/`down`/`zero`/`none`. A single sign→colour rule is wrong for a third of
+  the rows (a smaller shortfall is good, a smaller payoff probability is bad, a
+  changed average mana value is neither).
+- **`renderCompare()` returns immediately unless its tab is on screen.** Every
+  variant costs a parse and a full analysis; with four variants that is five
+  analyses per keystroke on a path that has never been profiled. The tab
+  handler calls it on arrival instead.
+- **COMPARE reaches into RENDER for `empty` and `colDot`.** Fine at runtime
+  (they are top-level consts, referenced only inside function bodies), but
+  `extract.js` cannot see them, so `compare.test.js` seeds stand-ins. If either
+  is renamed, that test needs the same rename.
+- `esc()` was added in COMPARE and is the first HTML-escaping helper in the
+  file. Variant names are user input rendered into markup; use it.
+
+## Current state — 2026-08-19 (session 5)
+
+**Done.** 747 tests green (800 with jsdom installed). Session 2 loaded the first
+real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
+with functionality frozen; session 4 added the Goldfish tab and produced the
+strongest cross-validation the mana math has had — the closed-form conditional
+model and the `research/mana-engine` Monte Carlo agreeing to ~2 points across the
+whole grid. Session 5 added sideboards, variants and the Compare tab, made
+`analyse()` pure on the way, and fixed the silent sideboard-folding bug.
 
 Remaining modelling gaps — mana rocks and dorks uncounted, X spells reading as mana
 value 0, split-card pips summed — are documented in the Method tab and all err
@@ -237,15 +328,23 @@ toward caution rather than false confidence.
 **Never profiled:** runtime performance under continuous typing. If jank appears on
 a 60-card list, the cause is the ~8 simultaneous `backdrop-filter` surfaces; cut the
 blur radius or drop blur from the left column rather than abandoning the material.
-The goldfish itself is not a suspect — 1000 hands score twice each in 39ms.
+The goldfish itself is not a suspect — 1000 hands score twice each in 39ms. The
+compare panel is not a suspect either, because it does not compute while hidden —
+but if that gate is ever removed it becomes the first place to look. `render()`
+would otherwise parse the list several times per keystroke, which is what
+`parseDeckCached` is for.
 
-**Never opened in a browser by the agent.** Session 4's UI was verified headlessly:
-the view builders are pure and tested for structure and for leaked `undefined`/`NaN`
-across 400 rendered hands, but nobody has *looked* at the Goldfish tab. Layout,
-wrapping at narrow widths, and the histogram's proportions are unverified.
+**Still never opened in a real browser by the agent** — but the gap is narrower
+than it was. `tests/dom.test.js` now boots the actual page in jsdom and drives the
+whole sideboard flow with real clicks, so wiring, element ids and handler
+behaviour are covered. What remains unverified is anything jsdom does not do:
+layout, wrapping at narrow widths, `backdrop-filter`, and whether the compare
+matrix reads well when it gets wide enough to scroll.
 
-**Next up:** open. Mobile layout, card-name autocomplete, a sample-deck gallery, or
-closing one of the modelling gaps — sequenced land drops is now the biggest.
+**Next up:** open. Mobile layout (the compare matrix is the widest thing in the
+app and the most likely to need it), card-name autocomplete, a sample-deck
+gallery, or closing one of the modelling gaps — sequenced land drops is still
+the biggest.
 
 **One manual step outstanding:** GitHub Pages may still need enabling —
 Settings → Pages → source `main` / root. `.nojekyll` is committed, but Pages itself

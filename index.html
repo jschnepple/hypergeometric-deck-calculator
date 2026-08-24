@@ -318,6 +318,111 @@ tr.moved td{background:rgba(112,178,255,.055)}
 .empty span{font-size:11.5px;color:var(--dim2);line-height:1.6;max-width:62ch}
 td .empty,.empty.row1{padding:var(--s3) 0}
 
+/* ============================================================
+   SIDEBOARD, VARIANTS, COMPARE
+   ------------------------------------------------------------
+   No new colour values. Every rule below reuses a solved token on a surface
+   that is the same as, or darker than, the one it was solved against — nested
+   wells are the dark --panel2 overlay, per the rule that a nested surface
+   recedes. Contrast can only improve, never regress, under that constraint.
+   ============================================================ */
+.flag.bad{background:rgba(255,107,98,.09);border-color:rgba(255,107,98,.3);color:var(--tx)}
+.sbcards{display:flex;flex-wrap:wrap;gap:var(--s1) 6px;margin-bottom:var(--s2)}
+.sbcard{font-size:11.5px;padding:3px 9px;border-radius:var(--rp);background:rgba(0,0,0,.16);
+  border:1px solid var(--edge);color:var(--dim)}
+.sbcard b{color:var(--tx);font-weight:650;font-variant-numeric:tabular-nums}
+.sbcard.unk{border-color:rgba(224,169,44,.32);color:var(--warn)}
+
+/* The variant switcher. It changes what EVERY panel below it describes, so it
+   sits above the tabs rather than inside one of them — a control that reframes
+   the whole page cannot live inside one of the things it reframes. */
+.vbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:var(--s3);
+  padding:var(--s2);border-radius:var(--r3);background:var(--g1);border:1px solid var(--edge);
+  backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%)}
+.vbar .vlab{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2);
+  font-weight:650;padding:0 var(--s2) 0 var(--s1)}
+.vchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 12px;
+  border-radius:var(--rp);background:none;border:1px solid transparent;color:var(--dim);box-shadow:none}
+.vchip:hover{background:rgba(255,255,255,.05);color:var(--tx);transform:none;box-shadow:none}
+.vchip.on{background:var(--g2);color:var(--tx);border-color:var(--edge-str);
+  box-shadow:inset 0 1px 0 var(--sheen)}
+.vchip i{font-style:normal;font-size:10.5px;color:var(--dim2);font-variant-numeric:tabular-nums}
+.vchip.on i{color:var(--dim)}
+.vchip.broken{color:var(--bad)}
+.vswaps{flex-basis:100%;font-size:11.5px;color:var(--dim);padding:var(--s2) var(--s2) 2px;
+  display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap}
+.vswaps .sw{font-variant-numeric:tabular-nums}
+/* Ambient reminder of WHICH deck the panels describe. The single biggest way to
+   misread this feature is to forget a variant is active, so it is impossible to
+   have one selected and see an un-marked page. */
+body.variant-on .vbar{border-color:rgba(112,178,255,.4);box-shadow:inset 0 1px 0 var(--sheen),
+  -3px 0 0 0 var(--acc)}
+body.variant-on .tabs{border-left:2px solid rgba(112,178,255,.45)}
+
+.vrow{display:grid;grid-template-columns:46px 1fr 1fr 26px;gap:6px;align-items:center;margin-bottom:6px}
+.vrow select{min-width:0;width:100%;font-size:11.5px;padding:5px 7px}
+.vrow input{width:100%;font-size:11.5px;padding:5px 6px;text-align:center}
+.vrow .vdel{width:26px;padding:5px 0;text-align:center;color:var(--dim2);font-size:13px;line-height:1}
+.vhead{display:flex;gap:6px;align-items:center;margin:var(--s4) 0 var(--s2)}
+.vhead .vname{flex:1;font-size:12.5px;font-weight:650;color:var(--tx)}
+.vnet{font-size:11px;color:var(--dim2);margin-top:var(--s2);font-variant-numeric:tabular-nums}
+.vnet.bad{color:var(--warn)}
+.vlegend{display:grid;grid-template-columns:46px 1fr 1fr 26px;gap:6px;font-size:10px;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--dim2);margin-bottom:5px}
+
+/* ---- comparison matrix ---- */
+.cmpscroll{overflow-x:auto;margin:0 calc(var(--s2) * -1);padding:0 var(--s2)}
+table.cmp{font-size:12px;min-width:100%}
+table.cmp th{vertical-align:top;white-space:nowrap}
+table.cmp td{vertical-align:top;min-width:118px}
+table.cmp thead th{font-size:12px;color:var(--tx);padding-bottom:var(--s3)}
+table.cmp tbody th{font-weight:650;color:var(--dim);white-space:normal;max-width:240px}
+table.cmp .cmetric{width:34%;min-width:170px}
+table.cmp .cdim{display:block;font-size:10.5px;color:var(--dim2);font-weight:400;
+  letter-spacing:0;text-transform:none;margin-top:2px;white-space:normal}
+table.cmp .cbase{background:rgba(0,0,0,.16)}
+table.cmp tr.cgroup th{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim2);
+  padding-top:var(--s4);border-bottom:1px solid var(--edge)}
+table.cmp td b{font-weight:650;font-size:13px;color:var(--tx)}
+table.cmp td.cbroken{color:var(--dim2)}
+.cdelta{font-size:10.5px;font-weight:650;margin-left:6px;padding:1px 6px;border-radius:var(--rp);
+  font-variant-numeric:tabular-nums}
+.cdelta.good{color:var(--good);background:rgba(78,196,106,.14)}
+.cdelta.bad{color:var(--bad);background:rgba(255,107,98,.14)}
+.cdelta.none{color:var(--dim);background:rgba(255,255,255,.07)}
+.cdelta.flat{color:var(--dim2);background:none;padding-left:2px}
+/* A difference inside the sampling noise gets no colour at all. Colouring it
+   would assert a finding the sample cannot support. */
+.cdelta.noise{color:var(--dim2);background:rgba(255,255,255,.05)}
+.csrc .cline{display:flex;align-items:baseline;gap:5px}
+.csrc b{font-size:13px}
+.csrc b.bad{color:var(--bad)}.csrc b.good{color:var(--good)}.csrc b.ok{color:var(--tx)}
+.csrc .cdim{display:inline;margin:0}
+.cbar{position:relative;height:5px;border-radius:var(--rp);background:rgba(0,0,0,.28);
+  margin-top:5px;overflow:visible}
+.cbar i{position:absolute;left:0;top:0;bottom:0;border-radius:var(--rp);background:var(--dim)}
+.cbar i.bad{background:var(--bad)}.cbar i.good{background:var(--good)}.cbar i.ok{background:var(--acc)}
+/* The requirement, drawn as a line rather than a second bar: it is a threshold,
+   not a quantity, and the eye reads "past the mark" instantly. */
+.cbar u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx);opacity:.65;
+  transform:translateX(-1px)}
+
+/* ---- curve small multiples ---- */
+.cmini{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--s4)}
+.cminicol{padding:var(--s3);border-radius:var(--r2);background:rgba(0,0,0,.16);
+  border:1px solid var(--edge)}
+.cminititle{font-size:11.5px;font-weight:650;color:var(--tx);margin-bottom:var(--s2)}
+.cminibars{display:flex;align-items:flex-end;gap:4px;height:74px}
+.cmb{position:relative;flex:1;height:100%;display:flex;align-items:flex-end}
+.cmb i{position:absolute;bottom:0;left:0;right:0;border-radius:2px 2px 0 0}
+.cmb i.bar{background:linear-gradient(180deg,var(--acc),rgba(112,178,255,.45))}
+/* The baseline behind each panel, so the comparison is local to the panel and
+   the eye never has to travel to a legend. */
+.cmb i.ghost{background:none;border:1px dashed rgba(255,255,255,.28)}
+.cminiax{display:flex;gap:4px;margin-top:5px}
+.cminiax span{flex:1;text-align:center;font-size:9.5px;color:var(--dim2)}
+.cminifoot{font-size:11px;color:var(--dim);margin-top:var(--s2);font-variant-numeric:tabular-nums}
+
 /* ---- scrollbars ---- */
 *::-webkit-scrollbar{width:11px;height:11px}
 *::-webkit-scrollbar-track{background:transparent}
@@ -410,9 +515,17 @@ Then click “Look up costs (Scryfall)” above."></textarea>
       </div>
       <div class="note">
         Format <code>4 Lightning Bolt</code>. Everything recalculates as you type.<br>
+        Put a <code>Sideboard</code> line before your sideboard cards and they are kept out of the deck.<br>
         Override a cost inline: <code>4 Some Card {1}{R}{R}</code> · land Scryfall can't find:
         <code>4 Mystery Land [land:RG]</code>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Sideboard <span id="sbCount" class="mini"></span></h2>
+      <div id="sbList"></div>
+      <div id="sbFlags"></div>
+      <div id="vEditor"></div>
     </div>
 
     <div class="card">
@@ -436,6 +549,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
 
   <!-- ============ RIGHT: PANELS ============ -->
   <div>
+    <div id="vbar" class="vbar"></div>
     <div class="tabs" id="tabs">
       <button data-t="verdict" class="on">Verdict</button>
       <button data-t="lands">Land Count</button>
@@ -444,6 +558,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
       <button data-t="copies">How Many Copies</button>
       <button data-t="payoffs">Payoffs</button>
       <button data-t="goldfish">Goldfish</button>
+      <button data-t="compare">Compare</button>
       <button data-t="method">Method</button>
     </div>
 
@@ -585,6 +700,29 @@ Then click “Look up costs (Scryfall)” above."></textarea>
           edge. The score itself is a heuristic — open any hand to see the five components behind its number.</div>
       </div>
       <div id="gfOut"></div>
+    </div>
+
+    <!-- COMPARE -->
+    <div id="p-compare" class="hide">
+      <div class="card hide" id="cmpControls">
+        <h2>Opening hands, across every variant</h2>
+        <div class="row">
+          <label class="gflab"><span class="tip" tabindex="0" data-tip="How many opening hands to deal to EACH deck. The comparison is only as sharp as this number: the noise band shrinks with the square root of it.">Hands per deck</span>
+            <select id="cmpCount">
+              <option>200</option><option selected>500</option>
+              <option>1000</option><option>2500</option>
+            </select></label>
+          <label class="gflab"><span class="tip" tabindex="0" data-tip="Every variant is dealt from this same seed, so the shuffles are correlated and a shared run of bad luck cancels out of the difference instead of being blamed on your swaps.">Shared seed</span>
+            <input type="number" id="cmpSeed" value="1" style="width:92px"></label>
+          <button id="cmpReseed" title="New random seed">↻</button>
+          <button id="cmpRun" class="primary">Simulate every deck</button>
+        </div>
+        <div class="note">This is the one figure on this panel that is <b>sampled</b> rather than computed, so it
+          runs on demand rather than as you type. Every deck gets the same seeds — the same shuffles, as far as two
+          different decklists allow — and any difference smaller than the sampling noise is shown greyed out
+          rather than dressed up as a finding.</div>
+      </div>
+      <div id="cmpOut"></div>
     </div>
 
     <!-- METHOD -->
@@ -921,14 +1059,256 @@ function parseList(text){
 }
 
 /* ============================================================
-   ANALYSIS
+   SIDEBOARD
+   ------------------------------------------------------------
+   A deck is not one deck. It is a maindeck plus up to fifteen sideboard cards,
+   and across a match you play two or three different decks assembled from them.
+   Everything above this banner describes game one.
+
+   A variant is stored as a DIFF — an ordered list of {out, in, qty} swaps
+   applied to the maindeck — not as a copy of the list. A copy is correct for
+   exactly as long as you never touch the maindeck, which is never; and the diff
+   is also the thing you want to read back ("vs Control: -2 Cut Down, +2 Duress").
+   The price is that a diff can break when the card it removes stops existing,
+   and that is handled loudly rather than by applying half a swap.
    ============================================================ */
-function analyse(){
-  const text=document.getElementById('list').value;
-  const N=+document.getElementById('deckSize').value||60;
-  const thr=+document.getElementById('thr').value;
-  const onPlay=document.getElementById('play').value==='1';
-  const {cards,unknown}=parseList(text);
+
+/* Section headers, resolved BEFORE any card parsing.
+
+   Note what this fixes. parseList skips a line matching /^sideboard\b/ and then
+   carries on parsing, so until now every sideboard card in a pasted Moxfield or
+   Arena export was silently counted as part of the maindeck — a 75-card list
+   analysed as though all 75 were the deck, land ratios and colour requirements
+   included. Splitting first is the fix; sideboard.test.js guards it.
+
+   There is deliberately NO blank-line heuristic. Blank lines are used
+   cosmetically inside mainboard lists constantly, and guessing wrong silently
+   moves cards between decks. An explicit header, or nothing. */
+function headerKind(line){
+  const t = String(line||'').replace(/^\/\/\s*/,'').trim();
+  // "Sideboard", "SIDEBOARD:", "Deck (60)", "Sideboard 15"
+  const m = t.match(/^([A-Za-z][A-Za-z ]*?)\s*:?\s*(?:\(\s*\d+\s*\)|\d+)?$/);
+  if(!m) return null;
+  const w = m[1].trim().toLowerCase().replace(/\s+/g,'');
+  if(['deck','main','maindeck','mainboard','commander'].includes(w)) return 'main';
+  if(['sideboard','side','sb'].includes(w)) return 'side';
+  /* Companion is ignored rather than added to the sideboard. Arena and Moxfield
+     both print it in its own block AND again in the sideboard, so counting it
+     here reports a 16-card sideboard for a legal deck. Undercounting a companion
+     costs nothing this tool measures; a false legality warning costs trust. */
+  if(w==='companion') return 'ignore';
+  if(['maybeboard','maybe','considering','tokens','tokenlist'].includes(w)) return 'ignore';
+  return null;
+}
+
+/* Split a pasted list into its blocks. Returns text, not cards, so parseList
+   runs over each block completely unchanged and every existing parser test
+   still describes the same function. */
+function splitList(text){
+  const main=[], side=[], ignored=[];
+  let cur=main, sawSide=false;
+  for(const raw of String(text||'').split('\n')){
+    const line=raw.trim();
+    const kind = line ? headerKind(line) : null;
+    if(kind){
+      cur = kind==='main' ? main : kind==='side' ? side : ignored;
+      if(kind==='side') sawSide=true;
+      continue;
+    }
+    // MTGO's per-line form: "SB: 2 Duress" — routes one line, not the rest.
+    const sb = line.match(/^SB:\s*(.+)$/i);
+    if(sb){ side.push(sb[1]); sawSide=true; continue; }
+    cur.push(raw);
+  }
+  return {main:main.join('\n'), side:side.join('\n'), ignored:ignored.join('\n'), sawSide};
+}
+
+function parseDeck(text){
+  const s = splitList(text);
+  const m = parseList(s.main);
+  const b = parseList(s.side);
+  return {cards:m.cards, unknown:m.unknown, side:b.cards, sideUnknown:b.unknown,
+          sawSide:s.sawSide};
+}
+
+/* render() asks for the same parse three times per keystroke, and the compare
+   panel asks once more per column. The list only changes when the textarea does,
+   so one entry is all the cache needs — and it must be invalidated by DB too,
+   because a Scryfall lookup changes what the identical text parses INTO. */
+let PD_TEXT=null, PD_VAL=null, PD_DB=null;
+function parseDeckCached(text){
+  const t=String(text||'');
+  if(PD_VAL && PD_TEXT===t && PD_DB===DB) return PD_VAL;
+  PD_TEXT=t; PD_DB=DB; PD_VAL=parseDeck(t);
+  return PD_VAL;
+}
+
+/* The unresolved names in a specific card list.
+
+   analyseVariant cannot reuse the maindeck's list: a variant that boards IN an
+   unresolved sideboard card would not appear in it, and validateDeck would wave
+   through a deck containing a card that simulates as a colourless 0-drop — which
+   is precisely what that check exists to stop. A variant that boards OUT the
+   deck's only unresolved card has the opposite problem, refused simulation over
+   a card it no longer contains. */
+function unknownIn(cards){
+  return [...new Set((cards||[]).filter(c=>c.unknown).map(c=>c.name))];
+}
+
+const cardKey = n => String(n||'').trim().toLowerCase();
+function findCard(list, name){
+  const k=cardKey(name);
+  return (list||[]).find(c=>cardKey(c.name)===k) || null;
+}
+/* Collapse repeated entries for the same card into one.
+
+   Real exports do split a playset across lines — a Moxfield list with two
+   printings of the same card, an Arena export where the companion appears twice.
+   findCard returns the FIRST match, so without this "2 Abrade" plus "2 Abrade"
+   reads as two copies: taking out three of them errors with "the maindeck only
+   runs 2", and the variant breaks for a swap that is perfectly legal. */
+function mergeEntries(cards){
+  const out=[], byKey={};
+  (cards||[]).forEach(c=>{
+    const k=cardKey(c.name), seen=byKey[k];
+    if(seen) seen.qty+=c.qty;
+    else { const n=cloneCard(c); byKey[k]=n; out.push(n); }
+  });
+  return out;
+}
+const BASIC_NAMES=['plains','island','swamp','mountain','forest','wastes'];
+function isBasicLand(c){
+  if(!c) return false;
+  if(/\bBasic\b/i.test(c.typeLine||'')) return true;
+  return BASIC_NAMES.includes(cardKey(c.name).replace(/^snow-covered\s+/,''));
+}
+
+/* Cards carry shared references — `produces` and `subtypes` come straight off
+   the DB record, and analyse() REASSIGNS produces for fetchlands. A variant that
+   handed those objects on could reach back into the maindeck's data and change
+   what the baseline column says. Clone on the way in. */
+function cloneCard(c){
+  const o=Object.assign({},c);
+  o.pips=Object.assign({},c.pips||{});
+  o.produces=(c.produces||[]).slice();
+  o.subtypes=(c.subtypes||[]).slice();
+  return o;
+}
+
+/* Apply a variant's swaps to the maindeck.
+
+   Returns every problem it found, at one of two levels. An ERROR means the swap
+   cannot be carried out at all — the card it removes is not there, or the card
+   it brings in is not in the sideboard — and the variant is marked `broken`
+   rather than analysed with half the swap applied. A WARN means the result is
+   unusual but real (a 61-card variant is a legal choice) and it is analysed, so
+   the tool can tell you what it costs instead of refusing to look. */
+function applyVariant(mainCards, sideCards, swaps){
+  const cards=mergeEntries(mainCards);
+  const side=mergeEntries(sideCards);
+  const problems=[];
+  const err=(m,kind)=>problems.push({level:'error',msg:m,kind:kind||'swap'});
+  const warn=(m,kind)=>problems.push({level:'warn',msg:m,kind:kind||'swap'});
+  const sideUse={}, touched=new Set();
+  let inQty=0, outQty=0, applied=0;
+
+  (swaps||[]).forEach(sw=>{
+    const outName=String((sw&&sw.out)||'').trim();
+    const inName =String((sw&&sw.in )||'').trim();
+    if(!outName && !inName) return;                 // a blank row mid-edit is not an error
+    const qty=Math.max(0, Math.floor(+(sw&&sw.qty)||0));
+    /* An editing state, not a finding. Tagged so the comparison panel can leave
+       it out of the "what sideboarding costs you" headline — a row you have not
+       finished filling in is not a regression in your mana. */
+    if(qty<1){ warn(`“${outName||inName}” is set to swap 0 copies, so it does nothing.`, 'noop'); return; }
+
+    if(outName){
+      const t=findCard(cards,outName);
+      if(!t) err(`${outName} is not in the maindeck, so this variant cannot take it out.`);
+      else if(t.qty<qty) err(`This takes out ${qty} ${outName}, but the maindeck only runs ${t.qty}.`);
+      else { t.qty-=qty; outQty+=qty; applied++; touched.add(cardKey(outName)); }
+    }
+    if(inName){
+      const src=findCard(side,inName);
+      const used=sideUse[cardKey(inName)]||0;
+      if(!src) err(`${inName} is not in the sideboard, so it cannot come in.`);
+      else if(used+qty>src.qty) err(`This brings in ${used+qty} ${inName}, but the sideboard only has ${src.qty}.`);
+      else {
+        sideUse[cardKey(inName)]=used+qty;
+        const ex=findCard(cards,inName);
+        if(ex) ex.qty+=qty;
+        else { const nc=cloneCard(src); nc.qty=qty; nc.fromSide=true; cards.push(nc); }
+        inQty+=qty; applied++; touched.add(cardKey(inName));
+      }
+    }
+  });
+
+  const out=cards.filter(c=>c.qty>0);
+  const errors=problems.filter(p=>p.level==='error');
+  const net=inQty-outQty;
+  if(net!==0 && !errors.length)
+    warn(`In and out do not balance — this variant is ${net>0?'+':''}${net} card${Math.abs(net)===1?'':'s'} `+
+         `against the maindeck. Legal, but the odds below are for a deck of that size.`, 'net');
+  /* Only cards this variant actually moved. A maindeck already running five of
+     something is a problem with the maindeck, and blaming it on every variant in
+     turn would put a finding in the comparison panel that no swap caused. */
+  out.forEach(c=>{ if(c.qty>4 && !isBasicLand(c) && touched.has(cardKey(c.name)))
+    warn(`After these swaps the deck runs ${c.qty} ${c.name} — four is the limit outside basic lands.`, 'copies'); });
+
+  return {cards:out, problems, errors, broken:errors.length>0, inQty, outQty, net, applied};
+}
+
+/* Deck-construction checks on the list itself, independent of any variant. */
+function deckLegality(mainCards, sideCards){
+  const problems=[];
+  const sideCount=(sideCards||[]).reduce((s,c)=>s+c.qty,0);
+  if(sideCount>15)
+    problems.push({level:'warn',msg:`Your sideboard is ${sideCount} cards — the limit is 15.`});
+  const seen={};
+  [...(mainCards||[]),...(sideCards||[])].forEach(c=>{
+    const k=cardKey(c.name);
+    seen[k]=seen[k]||{qty:0,card:c};
+    seen[k].qty+=c.qty;
+  });
+  Object.values(seen).forEach(v=>{
+    if(v.qty>4 && !isBasicLand(v.card))
+      problems.push({level:'warn',msg:`${v.card.name}: ${v.qty} copies across maindeck and sideboard — four is the limit.`});
+  });
+  return {sideCount, problems};
+}
+
+/* Variant bookkeeping. Ids are monotonic within a build so a chip, a stored
+   selection and an exported file all agree on which variant is which. */
+let VARIANTS=[], VID=0, ACTIVE_V=null;
+function newVariant(name){
+  return {id:++VID, name:String(name||'').trim()||`Variant ${VID}`, swaps:[], note:''};
+}
+function getVariant(id){ return VARIANTS.find(v=>v.id===id)||null; }
+function describeSwaps(swaps){
+  const parts=[];
+  (swaps||[]).forEach(sw=>{
+    const q=Math.max(0,Math.floor(+(sw&&sw.qty)||0));
+    if(!q) return;
+    if(sw.out) parts.push(`−${q} ${sw.out}`);
+    if(sw.in)  parts.push(`+${q} ${sw.in}`);
+  });
+  return parts.join(', ');
+}
+
+/* ============================================================
+   ANALYSIS
+   ------------------------------------------------------------
+   analyseCards is PURE. It used to read its six inputs straight out of the DOM,
+   which is the only reason this section has never been under test — extract.js
+   could not evaluate it in node. Now the DOM contact lives in readInputs(), one
+   function, in RENDER's orbit, and everything below can be called with a plain
+   object. That is also what makes a variant analysable at all: the same code
+   path, a different card list.
+   ============================================================ */
+function analyseCards(cards, unknown, opts){
+  const N=+(opts&&opts.N)||60;
+  const thr=+(opts&&opts.thr)||0.90;
+  const onPlay=!!(opts&&opts.onPlay);
 
   const total=cards.reduce((s,c)=>s+c.qty,0);
   const lands=cards.filter(c=>c.land);
@@ -972,8 +1352,8 @@ function analyse(){
   const avgMV = spellCount? mvSum/spellCount : 0;
 
   // land regression (Karsten, 60-card)
-  const rampN = +document.getElementById('ramp').value||0;
-  const comp = +document.getElementById('comp').value||0;
+  const rampN = +(opts&&opts.rampN)||0;
+  const comp = +(opts&&opts.comp)||0;
   const mdfcT = cards.filter(c=>c.mdfcLand&&c.tapped).reduce((s,c)=>s+c.qty,0);
   const mdfcU = cards.filter(c=>c.mdfcLand&&!c.tapped).reduce((s,c)=>s+c.qty,0);
   let rec = 19.59 + 1.90*avgMV - 0.28*rampN - 0.74*mdfcU - 0.38*mdfcT + 0.27*comp;
@@ -1021,6 +1401,51 @@ function analyse(){
   return {cards,unknown,total,lands,spells,landCount,spellCount,sources,untapped,enablers,condInfo,
           restrictedInfo,fetchInfo,
           curve,avgMV,rec,recR,need,needFrom,needTurn,drivers,N,thr,onPlay,rampN,mdfcT,mdfcU};
+}
+
+/* Parse a whole pasted list — maindeck and sideboard — and analyse the maindeck.
+   `opts.text` carries the list; everything else is the assumptions panel. */
+function analyse(opts){
+  const o = opts || readInputs();
+  const d = parseDeckCached(o.text||'');
+  const A = analyseCards(d.cards, d.unknown, o);
+  A.side = d.side;
+  A.sideUnknown = d.sideUnknown;
+  A.legality = deckLegality(d.cards, d.side);
+  A.variant = null;
+  A.opts = o;
+  return A;
+}
+
+/* The same analysis, over the maindeck with one variant's swaps applied.
+
+   A broken variant returns a stub rather than numbers. Analysing a partially
+   applied swap would produce a plausible-looking answer for a deck that does
+   not exist, and plausible-looking wrong answers are what this codebase keeps
+   getting caught by. */
+function analyseVariant(opts, variant){
+  const o = opts || readInputs();
+  const d = parseDeckCached(o.text||'');
+  const r = applyVariant(d.cards, d.side, variant && variant.swaps);
+  if(r.broken){
+    /* Carry the full analysis SHAPE, empty. Every render function already returns
+       its empty state on total===0, so a broken variant degrades into "nothing to
+       show" everywhere instead of throwing on a missing field somewhere deep in a
+       panel nobody happened to have open. */
+    const stub = analyseCards([], [], o);
+    return Object.assign(stub, {broken:true, variant, problems:r.problems, errors:r.errors,
+                                swapNet:r.net, side:d.side, sideUnknown:d.sideUnknown,
+                                legality:deckLegality(d.cards, d.side), opts:o});
+  }
+  const A = analyseCards(r.cards, unknownIn(r.cards), o);
+  A.side = d.side;
+  A.sideUnknown = d.sideUnknown;
+  A.legality = deckLegality(d.cards, d.side);
+  A.variant = variant;
+  A.problems = r.problems;
+  A.swapNet = r.net;
+  A.opts = o;
+  return A;
 }
 
 /* ============================================================
@@ -1935,6 +2360,363 @@ function gfDrillHTML(){
 }
 
 /* ============================================================
+   COMPARE
+   ------------------------------------------------------------
+   Comparing sideboard plans means comparing two KINDS of number, and keeping
+   them apart is the whole job.
+
+   DETERMINISTIC figures — land count, curve, colour sources against the
+   requirement, payoff odds — are computed exactly from the list. Any difference
+   between two variants is real, however small.
+
+   SAMPLED figures — mulligan rate, mean hand score — come out of the goldfish
+   Monte Carlo, where a difference is noise until proven otherwise. Two
+   protections apply. First COMMON RANDOM NUMBERS: every variant is dealt from
+   the same base seed, so the shuffles are correlated and a shared run of bad
+   luck largely cancels out of the difference rather than being attributed to
+   the swap. Second an explicit NOISE BAND: a proportion at n hands has
+   SE = sqrt(p(1-p)/n), a difference of two has sqrt(SE1^2 + SE2^2), and any gap
+   inside 2x that is rendered grey and labelled as indistinguishable. CRN makes
+   the true paired error smaller than that bound, so the band is conservative —
+   which is the correct direction to be wrong in.
+
+   There is deliberately no aggregate "best variant" score. No defensible
+   weighting exists between a point of colour consistency and a point of payoff
+   probability, and inventing one would be exactly the false confidence the rest
+   of this tool goes out of its way to avoid. What the panel does instead is
+   name REGRESSIONS: the variants that push a colour under its requirement or
+   pull the land count away from where the regression wants it.
+
+   These builders return strings and live here rather than in RENDER for the
+   same reason gfBulkHTML does — extract.js cannot reach RENDER, a broken
+   template literal does not throw, and "undefined%" renders perfectly happily.
+   ============================================================ */
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,
+  ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+
+/* One variant's numbers, flattened to exactly what the comparison shows. */
+function variantMetrics(A){
+  if(!A || A.broken) return {broken:true};
+  const colors={};
+  COLORS.forEach(col=>{
+    const need=A.need[col]||0, have=A.sources[col]||0;
+    if(!need && !have) return;
+    colors[col]={need, have, short:Math.max(0, need-have), surplus:have-need,
+                 from:A.needFrom[col]||'', turn:A.needTurn[col]||0};
+  });
+  const curve=[]; for(let i=0;i<=7;i++) curve.push(A.curve[i]||0);
+  return {
+    broken:false, empty:A.total===0,
+    total:A.total, landCount:A.landCount, spellCount:A.spellCount,
+    avgMV:A.avgMV, rec:A.rec, recR:A.recR, landGap:A.landCount-A.rec,
+    colors, curve,
+    worstShort:Object.values(colors).reduce((m,c)=>Math.max(m,c.short),0),
+    payoffs:(typeof PAYOFFS!=='undefined'?PAYOFFS:[]).map(p=>{
+      const r=evalPayoff(p,A);
+      return {id:p.id, name:p.name||'Payoff', p:(p.grab>1?r.pFull:r.pAtLeast1), hits:r.K};
+    })
+  };
+}
+
+/* Build every column of the comparison. Pure: give it the assumptions and the
+   variants and it does the parsing, swapping and analysis itself. */
+function compareColumns(opts, variants){
+  const cols=[{name:'Maindeck', base:true, variant:null, A:analyse(opts)}];
+  (variants||[]).forEach(v=>cols.push({name:v.name, base:false, variant:v, A:analyseVariant(opts,v)}));
+  cols.forEach(c=>{ c.m = variantMetrics(c.A); });
+  return cols;
+}
+
+/* Signature of every deck in the comparison, for deciding whether a finished
+   simulation still describes them.
+
+   It hashes the whole card list, exactly as gfSig does. Summary figures are not
+   enough: swapping one two-mana instant for another — the most ordinary
+   sideboard move there is — leaves the total, the land count and the average
+   mana value all identical, so a signature built from those would let the
+   previous deck's keep rates sit on screen labelled as current. */
+function cmpSig(cols){
+  return (cols||[]).map(c=>c.m.broken ? c.name+':broken'
+    : c.name+':'+c.A.N+':'+c.A.cards.map(x=>x.qty+'|'+x.name).join(',')).join('#');
+}
+
+/* Which direction is good, PER METRIC. A single sign-to-colour rule would be
+   wrong for a third of these rows: fewer sources short is good, a lower payoff
+   probability is bad, and a change in average mana value is neither. */
+function cmpTone(dir, cur, base){
+  const d = cur - base;
+  if(!isFinite(d) || Math.abs(d) < 1e-9) return 'flat';
+  if(dir==='up')   return d>0 ? 'good' : 'bad';
+  if(dir==='down') return d<0 ? 'good' : 'bad';
+  if(dir==='zero') return Math.abs(cur) < Math.abs(base) ? 'good' : 'bad';
+  return 'none';
+}
+function cmpDelta(cur, base, dir, fmt){
+  const d=cur-base;
+  if(!isFinite(d) || Math.abs(d)<1e-9) return `<span class="cdelta flat">—</span>`;
+  const f = fmt || (x=>(x>0?'+':'')+(+x.toFixed(1)));
+  return `<span class="cdelta ${cmpTone(dir,cur,base)}">${f(d)}</span>`;
+}
+const cnum  = x => (Math.round(x*10)/10).toString();
+const cpp   = d => (d>0?'+':'')+(d*100).toFixed(1)+'pp';
+const cpct  = x => (x*100).toFixed(1)+'%';
+
+/* The headline. Everything else on the panel is detail under this. */
+function cmpRegressions(cols){
+  const base=cols.find(c=>c.base), out=[];
+  if(!base || base.m.broken || base.m.empty) return out;
+  cols.filter(c=>!c.base).forEach(c=>{
+    if(c.m.broken){
+      out.push({name:c.name, level:'error',
+                msg:`can’t be applied — ${(c.A.errors||[]).length} problem${(c.A.errors||[]).length===1?'':'s'} with its swaps.`});
+      return;
+    }
+    const hits=[];
+    COLORS.forEach(col=>{
+      const b=base.m.colors[col], v=c.m.colors[col];
+      if(!v) return;
+      const was=b?b.short:0;
+      if(v.short>was){
+        hits.push(`${CNAME[col].toLowerCase()} drops to ${cnum(v.have)} sources against the ${v.need} `+
+                  `${v.from?`${esc(v.from)} `:''}wants${was>0?` (was ${cnum(b.have)})`:''}`);
+      }
+    });
+    const gapWas=Math.abs(base.m.landGap), gapNow=Math.abs(c.m.landGap);
+    if(gapNow>1 && gapNow>gapWas+0.4)
+      hits.push(`the curve now wants ${c.m.recR} lands and the deck runs ${c.m.landCount}`);
+    /* Only warnings this variant's swaps actually caused. A half-filled editor
+       row, or a maindeck that already ran five of something, is not something
+       sideboarding costs you — and this panel is answering that question. */
+    (c.A.problems||[]).filter(p=>p.level==='warn' && p.kind!=='noop')
+      .forEach(p=>hits.push(esc(p.msg.replace(/\.$/,''))));
+    if(hits.length) out.push({name:c.name, level:'warn', msg:hits.join('; ')+'.'});
+  });
+  return out;
+}
+
+/* A colour cell: the number, a bar of have against need, and the delta.
+   "14 of 16" means more as a length than as a fraction. */
+function cmpColorCell(v, b){
+  if(!v) return `<span class="cdim">—</span>`;
+  const scale=Math.max(v.need, v.have, 1);
+  const fill=Math.max(0,Math.min(100, v.have/scale*100));
+  const mark=Math.max(0,Math.min(100, v.need/scale*100));
+  const tone=v.short>0 ? 'bad' : (v.surplus>=2 ? 'good' : 'ok');
+  return `<div class="csrc">
+    <div class="cline"><b class="${tone}">${cnum(v.have)}</b><span class="cdim">of ${v.need}</span>
+      ${b?cmpDelta(v.surplus, b.surplus, 'up'):''}</div>
+    <div class="cbar"><i class="${tone}" style="width:${fill.toFixed(1)}%"></i>
+      <u style="left:${mark.toFixed(1)}%"></u></div>
+  </div>`;
+}
+
+/* Curve small multiples. Every column is drawn on ONE shared scale — small
+   multiples scaled independently are a classic way to make two different
+   distributions look identical — with the maindeck behind each as a ghost. */
+function cmpCurveHTML(cols){
+  const live=cols.filter(c=>!c.m.broken && !c.m.empty);
+  if(!live.length) return '';
+  const base=cols.find(c=>c.base);
+  const max=Math.max(1, ...live.map(c=>Math.max(...c.m.curve)));
+  return `<div class="cmini">` + live.map(c=>`
+    <div class="cminicol">
+      <div class="cminititle">${esc(c.name)}</div>
+      <div class="cminibars">${c.m.curve.map((n,i)=>{
+        const g=(base&&!base.m.broken)?(base.m.curve[i]||0):0;
+        return `<span class="cmb" title="${i===7?'7+':i} MV: ${n} card${n===1?'':'s'}">
+          <i class="ghost" style="height:${(g/max*100).toFixed(1)}%"></i>
+          <i class="bar" style="height:${(n/max*100).toFixed(1)}%"></i></span>`;
+      }).join('')}</div>
+      <div class="cminiax">${[0,1,2,3,4,5,6,'7+'].map(l=>`<span>${l}</span>`).join('')}</div>
+      <div class="cminifoot">avg MV ${c.m.avgMV.toFixed(2)}${
+        base&&!c.base?` ${cmpDelta(c.m.avgMV, base.m.avgMV,'none',d=>(d>0?'+':'')+d.toFixed(2))}`:''}</div>
+    </div>`).join('') + `</div>`;
+}
+
+/* The matrix. Rows are metrics, columns are decks, maindeck pinned first. */
+function cmpTableHTML(cols){
+  const base=cols.find(c=>c.base);
+  if(!base || base.m.empty) return '';
+  const head = cols.map(c=>`<th class="${c.base?'cbase':''}">${esc(c.name)}
+      ${c.base?'<span class="cdim">baseline</span>':`<span class="cdim">${esc(describeSwaps(c.variant&&c.variant.swaps)||'no swaps yet')}</span>`}</th>`).join('');
+
+  /* dfmt matters: without it the delta falls back to one decimal place, so a real
+     average-mana-value move of −0.04 renders as "0" beside a value shown to two. */
+  const row=(label, pick, dir, fmt, hint, dfmt)=>{
+    const bv=pick(base.m);
+    return `<tr><th>${label}${hint?`<span class="cdim">${hint}</span>`:''}</th>` + cols.map(c=>{
+      if(c.m.broken) return `<td class="cbroken">—</td>`;
+      const v=pick(c.m);
+      return `<td class="${c.base?'cbase':''}"><b>${(fmt||cnum)(v)}</b>${c.base?'':cmpDelta(v,bv,dir,dfmt)}</td>`;
+    }).join('') + `</tr>`;
+  };
+
+  let colorRows='';
+  COLORS.forEach(col=>{
+    if(!cols.some(c=>!c.m.broken && c.m.colors[col])) return;
+    colorRows += `<tr><th>${colDot(col)} ${CNAME[col]}
+      <span class="cdim">${base.m.colors[col]?`driven by ${esc(base.m.colors[col].from||'—')}`:'not required'}</span></th>` +
+      cols.map(c=>c.m.broken
+        ? `<td class="cbroken">—</td>`
+        : `<td class="${c.base?'cbase':''}">${cmpColorCell(c.m.colors[col], c.base?null:base.m.colors[col])}</td>`
+      ).join('') + `</tr>`;
+  });
+
+  let payoffRows='';
+  (base.m.payoffs||[]).forEach((p,idx)=>{
+    payoffRows += `<tr><th>${esc(p.name)}<span class="cdim">chance of a hit</span></th>` +
+      cols.map(c=>{
+        if(c.m.broken) return `<td class="cbroken">—</td>`;
+        const q=(c.m.payoffs||[])[idx];
+        if(!q) return `<td><span class="cdim">—</span></td>`;
+        return `<td class="${c.base?'cbase':''}"><b>${cpct(q.p)}</b>${
+          c.base?'':cmpDelta(q.p, p.p, 'up', cpp)}<span class="cdim">${q.hits} hits</span></td>`;
+      }).join('') + `</tr>`;
+  });
+
+  return `<table class="cmp"><thead><tr><th class="cmetric">Metric</th>${head}</tr></thead>
+    <tbody>
+      <tr class="cgroup"><th colspan="${cols.length+1}">Shape</th></tr>
+      ${row('Cards', m=>m.total, 'none')}
+      ${row('Lands', m=>m.landCount, 'none')}
+      ${row('Average mana value', m=>m.avgMV, 'none', x=>x.toFixed(2), '',
+            d=>(d>0?'+':'')+d.toFixed(2))}
+      <tr class="cgroup"><th colspan="${cols.length+1}">Mana base</th></tr>
+      ${row('Lands the curve wants', m=>m.recR, 'none', x=>String(x), 'Karsten regression')}
+      ${row('Distance from that', m=>m.landGap, 'zero', x=>(x>0?'+':'')+x.toFixed(1), 'closer to zero is better')}
+      ${row('Worst colour shortfall', m=>m.worstShort, 'down', x=>x?('−'+cnum(x)):'none', 'sources short of the requirement')}
+      <tr class="cgroup"><th colspan="${cols.length+1}">Colour sources — have, against what the binding spell needs</th></tr>
+      ${colorRows||`<tr><td colspan="${cols.length+1}" class="cdim">No coloured requirements found yet.</td></tr>`}
+      ${payoffRows?`<tr class="cgroup"><th colspan="${cols.length+1}">Payoffs</th></tr>${payoffRows}`:''}
+    </tbody></table>`;
+}
+
+/* ---- sampled comparison: same seeds for every variant ----------------------
+
+   Standard errors, and the rule they feed. A proportion measured over n hands has
+   SE = sqrt(p(1-p)/n); a MEAN has SE = sd/sqrt(n), which needs the spread of the
+   scores and not just their average — so cmpSim carries the standard deviation
+   rather than letting the mean-score row go untested. Two independent estimates
+   add in quadrature, and a gap inside two of those is not a finding. */
+const seProp = (p,n) => n>0 ? Math.sqrt(Math.max(0,p*(1-p))/n) : 0;
+const seMean = (sd,n) => n>0 ? Math.max(0,sd)/Math.sqrt(n) : 0;
+const seDiff = (p1,p2,n) => Math.sqrt(seProp(p1,n)**2 + seProp(p2,n)**2);
+const seDiffMean = (sd1,sd2,n) => Math.sqrt(seMean(sd1,n)**2 + seMean(sd2,n)**2);
+const cmpSignificant = (p1,p2,n) => Math.abs(p1-p2) > 2*seDiff(p1,p2,n);
+const cmpSigMean = (m1,m2,sd1,sd2,n) => Math.abs(m1-m2) > 2*seDiffMean(sd1,sd2,n);
+
+function cmpSim(cols, seed, count, keepPlay, keepDraw){
+  return cols.map(c=>{
+    if(c.m.broken) return {name:c.name, base:c.base, ok:false, why:'its swaps cannot be applied'};
+    if(!c.A.total) return {name:c.name, base:c.base, ok:false, why:'there is nothing in the list'};
+    const v=validateDeck(c.A.cards, c.A.unknown, c.A.N);
+    if(!v.ok) return {name:c.name, base:c.base, ok:false, why:v.errors[0]};
+    const deck=expandDeck(c.A.cards);
+    const ctx={N:c.A.N, landCount:c.A.landCount, keepPlay, keepDraw};
+    // Same base seed for every column. That is the whole point.
+    const scored=scoreAll(runBulk(deck, seed>>>0, count), deck, ctx);
+    const stats=bulkStats(scored);
+    const sd=k=>{ const n=scored.length||1, mu=stats[k==='play'?'meanPlay':'meanDraw'];
+                  return Math.sqrt(scored.reduce((s,r)=>s+(r[k].score-mu)**2,0)/n); };
+    return {name:c.name, base:c.base, ok:true, n:count, stats,
+            keepPlay:1-stats.shipPlay, keepDraw:1-stats.shipDraw,
+            meanPlay:stats.meanPlay, meanDraw:stats.meanDraw,
+            sdPlay:sd('play'), sdDraw:sd('draw')};
+  });
+}
+
+function cmpSimHTML(sims){
+  if(!sims || !sims.length) return '';
+  const base=sims.find(s=>s.base);
+  const n=(base&&base.n)||0;
+  /* Each cell is tested against its OWN band, not a single figure quoted once for
+     the whole table. Two rates near 50% are noisier than two near 90%, so a shared
+     number would call some differences findings that its own test rejects, and
+     grey out others the test accepts. The band each cell was judged by is in its
+     tooltip. */
+  const cell=(s,key)=>{
+    if(!s.ok) return `<td class="cbroken">—</td>`;
+    const v=s[key];
+    if(s.base || !base || !base.ok) return `<td class="${s.base?'cbase':''}"><b>${cpct(v)}</b></td>`;
+    const b=base[key], band=2*seDiff(v,b,n), sig=Math.abs(v-b)>band;
+    return `<td><b>${cpct(v)}</b><span class="cdelta ${sig?cmpTone('up',v,b):'noise'}" `+
+      `title="Difference ${cpp(v-b)}; anything inside ±${(band*100).toFixed(2)}pp at ${n} hands is sampling noise.">${
+      sig?cpp(v-b):`${cpp(v-b)} · noise`}</span></td>`;
+  };
+  /* A mean is not a proportion: its standard error needs the spread of the scores,
+     which is why cmpSim carries sd. Colouring this row unconditionally — as the
+     first version did — asserted a finding for a difference of a tenth of a point
+     out of a hundred. */
+  const scoreCell=(s,key,sdKey)=>{
+    if(!s.ok) return `<td class="cbroken">—</td>`;
+    const v=s[key];
+    if(s.base || !base || !base.ok) return `<td class="${s.base?'cbase':''}"><b>${v.toFixed(1)}</b></td>`;
+    const b=base[key], band=2*seDiffMean(s[sdKey], base[sdKey], n), sig=Math.abs(v-b)>band;
+    const d=(v-b>0?'+':'')+(v-b).toFixed(1);
+    return `<td><b>${v.toFixed(1)}</b><span class="cdelta ${sig?cmpTone('up',v,b):'noise'}" `+
+      `title="Difference ${d}; anything inside ±${band.toFixed(2)} at ${n} hands is sampling noise.">${
+      sig?d:`${d} · noise`}</span></td>`;
+  };
+  const band = base&&base.ok
+    ? `Every difference here is tested against its own sampling error — two standard errors at ${n} hands, which
+       depends on the rates being compared — and anything inside it is greyed and labelled noise rather than
+       coloured as a finding. Hover a difference for the band it was judged by. Every deck was dealt from the same
+       seeds, so a shared run of bad shuffles largely cancels out of the difference, which makes those bands
+       conservative.`
+    : '';
+  /* A reason can be a full paragraph — the goldfish's unresolved-cards error runs
+     to two sentences — and a column header is the worst place in the layout to put
+     one. Truncate for the header; the whole thing lives in the tooltip. */
+  const why = s => { const t=String(s.why||'not simulated');
+                     return `<span class="cdim" title="${esc(t)}">${esc(t.length>72?t.slice(0,69)+'…':t)}</span>`; };
+  return `<table class="cmp"><thead><tr><th class="cmetric">Sampled</th>${
+      sims.map(s=>`<th class="${s.base?'cbase':''}">${esc(s.name)}${s.ok?'':why(s)}</th>`).join('')}</tr></thead>
+    <tbody>
+      <tr><th>Keepable hands, on the play</th>${sims.map(s=>cell(s,'keepPlay')).join('')}</tr>
+      <tr><th>Keepable hands, on the draw</th>${sims.map(s=>cell(s,'keepDraw')).join('')}</tr>
+      <tr><th>Mean hand score, on the play<span class="cdim">heuristic, out of 100</span></th>${
+        sims.map(s=>scoreCell(s,'meanPlay','sdPlay')).join('')}</tr>
+    </tbody></table>
+    <div class="note">${band}</div>`;
+}
+
+function compareHTML(cols, sims){
+  const base=cols.find(c=>c.base);
+  if(!base || base.m.empty)
+    return `<div class="card">` + empty('Compare your sideboard plans',
+      'Paste a decklist with a <b>Sideboard</b> section, then build a variant — “vs Control”, “vs Aggro” — by '+
+      'swapping maindeck cards for sideboard ones. This panel puts every variant beside the maindeck and shows '+
+      'what each one does to your land count, your colour sources, your curve and your payoff odds, so you can '+
+      'see which sideboard plan quietly breaks your mana before it happens in a match.') + `</div>`;
+  if(cols.length===1)
+    return `<div class="card">` + empty('No variants yet',
+      'Your list is loaded and the maindeck is the baseline. Add a variant in the Sideboard panel on the left — '+
+      'pick the cards coming out and the sideboard cards going in — and it appears here as a column beside this '+
+      'one, with every figure shown as a difference against the maindeck.') + `</div>`;
+
+  const regs=cmpRegressions(cols);
+  const head = regs.length
+    ? regs.map(r=>`<div class="flag ${r.level==='error'?'bad':''}"><b>${esc(r.name)}</b> — ${r.msg}</div>`).join('')
+    : `<div class="conflict ok">Nothing breaks. Every variant keeps each colour at or above the sources its most
+       demanding spell needs, and none of them pulls the land count away from where your curve wants it.</div>`;
+
+  return `<div class="card">
+      <h2>What sideboarding costs you</h2>
+      ${head}
+      <div class="note">Deterministic figures — every difference below is exact, not sampled.</div>
+    </div>
+    <div class="card"><h2>Side by side</h2><div class="cmpscroll">${cmpTableHTML(cols)}</div></div>
+    <div class="card"><h2>Curve, one panel per deck</h2>
+      <div class="note">Shared scale across all decks, with the maindeck drawn behind each as a ghost.</div>
+      ${cmpCurveHTML(cols)}</div>
+    <div class="card"><h2>Opening hands</h2>
+      ${sims && sims.length ? cmpSimHTML(sims)
+        : `<div class="note">Deals the same seeded hands to every variant and compares how many are keepable.
+           Runs on demand — it is the one figure here that is sampled rather than computed.</div>`}
+    </div>`;
+}
+
+/* ============================================================
    RENDER
    ============================================================ */
 const $=id=>document.getElementById(id);
@@ -2026,16 +2808,155 @@ function renderGuide(A){
        <div><b>${t}</b><span>${d}</span></div></div>`).join('');
 }
 
+/* The only place the assumptions panel is read. Everything downstream takes a
+   plain object, which is what lets a variant be analysed by the same code. */
+function readInputs(){
+  return {
+    text:$('list').value,
+    N:+$('deckSize').value||60,
+    thr:+$('thr').value,
+    onPlay:$('play').value==='1',
+    rampN:+$('ramp').value||0,
+    comp:+$('comp').value||0
+  };
+}
+/* The analysis every panel describes: the maindeck, or the selected variant. */
+function currentA(){
+  const o=readInputs();
+  const v = ACTIVE_V!=null ? getVariant(ACTIVE_V) : null;
+  return v ? analyseVariant(o,v) : analyse(o);
+}
+
 function render(){
   captureBars();
-  const A=analyse();
+  const A=currentA();
   gfMarkStale(A);
   renderGuide(A);
+  renderVariantBar(A); renderSideboard(A);
   renderConflicts(A); renderGlance(A);
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
   renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
   renderPayoffs(A); renderUnresolved(A); renderMethod(A);
+  renderCompare();
   runBars();
+}
+
+/* ---------- sideboard, variants, compare ---------------------------------- */
+
+function renderVariantBar(A){
+  document.body.classList.toggle('variant-on', ACTIVE_V!=null);
+  const o=readInputs();
+  const d=parseDeck(o.text||'');
+  const chip=(id,name,sub,broken)=>
+    `<button class="vchip${(ACTIVE_V===id||(id===null&&ACTIVE_V==null))?' on':''}${broken?' broken':''}" `+
+    `data-v="${id===null?'':id}">${esc(name)}${sub?`<i>${esc(sub)}</i>`:''}${broken?' ⚠':''}</button>`;
+
+  let html=`<span class="vlab">Deck</span>` + chip(null,'Maindeck','');
+  VARIANTS.forEach(v=>{
+    const r=applyVariant(d.cards, d.side, v.swaps);
+    const n=(v.swaps||[]).reduce((s,x)=>s+(Math.max(0,Math.floor(+x.qty||0))?1:0),0);
+    html += chip(v.id, v.name, n?`${n} swap${n===1?'':'s'}`:'empty', r.broken);
+  });
+  html += `<button class="vchip" id="vAdd" title="Create a sideboard variant">+ Variant</button>`;
+
+  if(ACTIVE_V!=null){
+    const v=getVariant(ACTIVE_V);
+    const desc=describeSwaps(v&&v.swaps);
+    html += `<div class="vswaps"><span class="sw">${desc?esc(desc):'No swaps yet — every figure below is the maindeck.'}</span>`+
+      (A.broken?`<span class="pill bad">can’t be applied</span>`:'')+
+      `<span style="flex:1"></span><button id="vRename">Rename</button><button id="vDelete">Delete</button></div>`;
+  }
+  $('vbar').innerHTML=html;
+}
+
+function renderSideboard(A){
+  const o=readInputs();
+  const d=parseDeck(o.text||'');
+  const side=d.side, sideCount=side.reduce((s,c)=>s+c.qty,0);
+  const leg=deckLegality(d.cards, side);
+
+  $('sbCount').textContent = sideCount ? `${sideCount}/15` : '';
+  if(!side.length){
+    $('sbList').innerHTML = empty('No sideboard found',
+      'Add a line reading <b>Sideboard</b> to your decklist and put the fifteen after it. Until then everything '+
+      'in the list is treated as maindeck — which is the right default, and it is also what was quietly happening '+
+      'to pasted exports before this panel existed.');
+    $('sbFlags').innerHTML='';
+    $('vEditor').innerHTML='';
+    return;
+  }
+  $('sbList').innerHTML = `<div class="sbcards">` + side.map(c=>
+    `<span class="sbcard${c.unknown?' unk':''}" title="${c.unknown?'Not resolved — run the Scryfall lookup':esc(c.cost||'')}">`+
+    `<b>${c.qty}</b> ${esc(c.name)}</span>`).join('') + `</div>`;
+  $('sbFlags').innerHTML = leg.problems.map(p=>`<div class="flag">${esc(p.msg)}</div>`).join('');
+
+  /* Swap rows for the ACTIVE variant only. Both ends are dropdowns rather than
+     free text: that makes "the card coming in must be in the sideboard" true by
+     construction instead of validated after the fact, and removes typos as a
+     source of broken variants entirely. */
+  const v = ACTIVE_V!=null ? getVariant(ACTIVE_V) : null;
+  if(!v){
+    $('vEditor').innerHTML = `<div class="note">Pick a variant above the panels on the right — or make one — to
+      choose which maindeck cards come out and which sideboard cards come in.</div>`;
+    return;
+  }
+  const opt=(list,sel)=>list.map(c=>
+    `<option value="${esc(c.name)}"${cardKey(c.name)===cardKey(sel)?' selected':''}>${esc(c.name)}</option>`).join('');
+  const rows=(v.swaps||[]).map((sw,i)=>`
+    <div class="vrow" data-si="${i}">
+      <input type="number" data-attr="qty" min="0" max="20" value="${Math.max(0,Math.floor(+sw.qty||0))}">
+      <select data-attr="out"><option value="">— out —</option>${opt(d.cards, sw.out)}</select>
+      <select data-attr="in"><option value="">— in —</option>${opt(side, sw.in)}</select>
+      <button class="vdel" data-si="${i}" title="Remove this swap">×</button>
+    </div>`).join('');
+
+  const r=applyVariant(d.cards, side, v.swaps);
+  /* When a swap errors, the in/out tallies describe only the half that went
+     through — reporting "2 out, 0 in" beside "this card is not in the sideboard"
+     invites the reader to fix a count that is not the problem. */
+  const netClass = r.broken ? ' bad' : (r.net===0 ? '' : ' bad');
+  const netText = r.broken
+    ? 'These swaps cannot be applied — nothing below is being calculated for this variant.'
+    : r.net===0
+      ? `${r.outQty} out, ${r.inQty} in — balanced ✓`
+      : `${r.outQty} out, ${r.inQty} in — ${r.net>0?'+':''}${r.net} against the maindeck`;
+
+  $('vEditor').innerHTML = `
+    <div class="vhead"><span class="vname">${esc(v.name)}</span></div>
+    ${rows?`<div class="vlegend"><span>Qty</span><span>Comes out</span><span>Comes in</span><span></span></div>`:''}
+    ${rows||`<div class="mini">No swaps yet — this variant is identical to the maindeck.</div>`}
+    <div class="row" style="margin-top:var(--s3)"><button id="vAddSwap">+ Add swap</button></div>
+    <div class="vnet${netClass}">${netText}</div>
+    ${r.problems.map(p=>`<div class="flag${p.level==='error'?' bad':''}">${esc(p.msg)}</div>`).join('')}`;
+}
+
+/* Compare state. Sampled results are session-only, like the goldfish's, and are
+   never recomputed behind your back — a stale run says so rather than silently
+   redealing against a list you have since changed. */
+const CMP={sims:null, sig:null, stale:false};
+let TAB='verdict';
+
+function renderCompare(){
+  /* Every variant costs a parse and a full analysis, so this stays off the
+     typing path entirely: nothing is computed unless the tab is on screen. */
+  if(TAB!=='compare') return;
+  const cols=compareColumns(readInputs(), VARIANTS);
+  const sig=cmpSig(cols);
+  if(CMP.sims && CMP.sig!==sig) CMP.stale=true;
+  $('cmpControls').classList.toggle('hide', cols.length<2);
+  $('cmpOut').innerHTML =
+    (CMP.stale ? `<div class="gfstale"><b>The decks changed.</b> The sampled figures below were run against the
+      previous lists — simulate again to refresh them.</div>` : '')
+    + compareHTML(cols, CMP.sims);
+}
+
+function cmpRun(){
+  const cols=compareColumns(readInputs(), VARIANTS);
+  CMP.sims=cmpSim(cols, (+$('cmpSeed').value||1)>>>0, +$('cmpCount').value||500,
+                  +$('gfKeepPlay').value||52, +$('gfKeepDraw').value||46);
+  CMP.sig=cmpSig(cols);
+  CMP.stale=false;
+  renderCompare();
 }
 
 function d(now, key){                       // diff badge vs snapshot
@@ -2383,8 +3304,22 @@ function renderMethod(A){
   <br><br>Land count is judged against <i>your</i> deck's ratio, not a fixed 3–4 band — a 17-land aggro deck and a 26-land control deck do not want the same opener. Being a land short is penalised harder than being a land long, because a flooded hand still casts its spells eventually and a land-light hand may never cast anything.
   <br><br>The "keeps acting" component measures the probability of having a play on each of turns one to four, with spells consumed as they are cast. An earlier version scored the <i>earliest</i> turn with a play and kept 79% of one-land hands, because a turn-one one-drop collected full marks no matter what followed. Casting one spell and then doing nothing is a mulligan, and the metric has to be able to see that.</div>
 
+  <h3>8. Sideboard variants — the same maths, a different sixty</h3>
+  <div class="note">A deck is not one deck. It is a maindeck plus up to fifteen, and across a match you play two or three different decks assembled from them. Everything in panels 1 to 7 describes game one; a variant applies your sideboard plan and runs the identical calculation over the result, so nothing new is being modelled here — the question is just being asked of a different sixty cards.
+  <br><br>A variant is stored as a <b>diff</b>, not a copy: an ordered list of "take out <i>n</i> of this, bring in <i>n</i> of that". Edit the maindeck and every variant follows automatically, which is the point — a stored copy of the list would be correct only until the next time you tuned the deck. The cost is that a diff can go stale, so when the card a swap takes out is no longer in the deck the variant is marked broken and <i>not</i> analysed. A half-applied swap would produce a confident answer about a deck that does not exist.
+  <br><br>What the comparison shows you first is not a ranking, it is <b>regressions</b>: the plans that push a colour below the sources its most demanding spell needs, or drag the land count away from where your curve wants it. That is the failure this panel exists for — sideboarding breaks manabases quietly, one land or one double-pip card at a time, and nobody checks it by hand. There is no aggregate "best variant" score, because there is no defensible exchange rate between a point of colour consistency and a point of payoff probability, and inventing one would dress a guess up as an answer.</div>
+
+  <h3>9. Deterministic figures and sampled ones are not the same kind of number</h3>
+  <div class="note">Land counts, curves, colour sources and payoff odds are computed exactly from the list. Any difference between two variants is real, however small.
+  <br><br>The opening-hand figures are not. They come from dealing hands, and two decks dealt 500 hands each differ by a point or two from luck alone. Two things guard against reading that as a finding. First, every variant is dealt from the <b>same seed sequence</b> — common random numbers — so a shared run of bad shuffles largely cancels out of the difference instead of being blamed on your swaps. Second, every difference is checked against <b>its own</b> sampling error, cell by cell: a keep rate at <i>n</i> hands has standard error √(p(1−p)/n), a mean score has sd∕√n, a difference of two adds those in quadrature, and anything inside two of them is greyed out and labelled noise rather than coloured as an improvement. Hover any difference to see the band it was judged by.
+  <br><br>Cell by cell matters. Two rates near 50% are noisier than two near 90%, so a single band quoted once for the whole table would colour some differences its own test rejects and grey out others the test accepts. And because a mean is not a proportion, the hand-score row is tested against the actual spread of the scores rather than assumed to move with the keep rate.
+  <br><br>Because the seeds are shared, the true error is <i>smaller</i> than these bands — so they are conservative, which is the correct direction to be wrong in.</div>
+
   <h3>Known limitations</h3>
   <div class="note">
+  · <b>Variants:</b> the deck-size assumption stays yours. A variant that brings in more cards than it takes out is analysed at the size you have set, and flagged, rather than silently corrected.<br>
+  · <b>Variants:</b> only the mana is compared. Whether a sideboard plan is actually <i>good</i> against a matchup is a question about gameplay, and nothing here has an opinion on it.<br>
+  · <b>Variants:</b> one sideboard per build, and no modelling of which cards you would draw or side in first.<br>
   · <b>Goldfish:</b> colours are combined by multiplying their conditional factors, which assumes independence between colours. Exact for a single-coloured requirement, an approximation for a gold card — and the same approximation the colour table above already makes.<br>
   · <b>Goldfish:</b> a Verge counts only for its unconditional colour here. Its conditional half depends on a land being in play, which cannot be expressed as a whole number in this calculation, so it is left out rather than guessed at — deliberately erring low.<br>
   · <b>Goldfish:</b> land drops are not sequenced, so a tapland is treated as producing mana on the turn it is played. This is optimistic. Modelling it properly needs a play policy deciding which land to lead on, which is a much larger piece of machinery.<br>
@@ -2412,7 +3347,7 @@ function renderMethod(A){
    bulk run must never travel in an export or make a saved build look dirty. */
 
 function gfRun(){
-  const A = analyse();
+  const A = currentA();          // deals from the variant on screen, not the maindeck
   GF_SIG = gfSig(A);
   const v = validateDeck(A.cards, A.unknown, A.N);
   GF.drill=null; GF.shown=100;
@@ -2473,12 +3408,45 @@ function storageAvailable(){
   try{ const k='__t'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }
   catch(e){ return false; }
 }
+/* Sideboard variants travel INSIDE the build, because a variant is meaningless
+   without the maindeck it is a diff against. Anything arriving from a file is
+   rebuilt field by field rather than trusted: a variant is a name and a list of
+   swaps, ids are reassigned to be unique and monotonic within the build, and a
+   malformed entry is dropped rather than allowed to poison an analysis. */
+function sanitizeVariants(raw){
+  if(!Array.isArray(raw)) return [];
+  const list=raw.filter(v=>v && typeof v==='object');
+  /* Two passes, deliberately. Reserving every valid id BEFORE minting any new one
+     stops an early entry with a missing id from taking a number a later entry
+     legitimately owns — which would silently repoint the saved "currently
+     viewing" selection at a different variant. */
+  const used=new Set();
+  list.forEach(v=>{ if(Number.isInteger(v.id) && v.id>0 && !used.has(v.id)) used.add(v.id); });
+  let next=0;
+  const taken=new Set();
+  return list.map(v=>{
+    let id = Number.isInteger(v.id) && v.id>0 && !taken.has(v.id) ? v.id : 0;
+    if(!id){ do { next++; } while(used.has(next) || taken.has(next)); id=next; }
+    taken.add(id);
+    return {
+    id,
+    name: String(v.name||'').trim().slice(0,60) || `Variant ${id}`,
+    note: String(v.note||'').slice(0,300),
+    swaps: (Array.isArray(v.swaps)?v.swaps:[])
+      .filter(s=>s && typeof s==='object')
+      .map(s=>({out:String(s.out||''), in:String(s.in||''), qty:Math.max(0,Math.min(60,Math.floor(+s.qty||0)))}))
+      .filter(s=>s.out||s.in)
+  };});
+}
 function snapshotState(){
   return {
+    schema: 2,
     list: $('list').value,
     deckSize:+$('deckSize').value||60, thr:$('thr').value, play:$('play').value,
     ramp:+$('ramp').value||0, comp:$('comp').value, copyTurn:+$('copyTurn').value||3,
     payoffs: JSON.parse(JSON.stringify(PAYOFFS)),
+    variants: JSON.parse(JSON.stringify(VARIANTS)),
+    activeVariant: ACTIVE_V,
     saved: new Date().toISOString()
   };
 }
@@ -2493,6 +3461,11 @@ function applyState(b){
   $('copyTurn').value = b.copyTurn ?? 3;
   PAYOFFS = Array.isArray(b.payoffs) ? JSON.parse(JSON.stringify(b.payoffs)) : [];
   PID = PAYOFFS.reduce((m,p)=>Math.max(m, p.id||0), 0);
+  /* A build saved before this feature existed simply has no variants — that is
+     the migration, and it is why sanitizeVariants tolerates undefined. */
+  VARIANTS = sanitizeVariants(b.variants);
+  VID = VARIANTS.reduce((m,v)=>Math.max(m, v.id||0), 0);
+  ACTIVE_V = VARIANTS.some(v=>v.id===b.activeVariant) ? b.activeVariant : null;
   SNAPSHOT = null;
   $('snap').textContent='Snapshot for diff'; $('clearSnap').classList.add('hide');
 }
@@ -2587,8 +3560,12 @@ function importPayload(txt){
    ============================================================ */
 async function lookup(){
   const btn=$('lookup'); const orig=btn.textContent;
-  const {cards}=parseList($('list').value);
-  const names=[...new Set(cards.map(c=>c.name))];
+  /* Maindeck AND sideboard. You cannot evaluate a sideboard plan against a card
+     the DB has never heard of, and an MTGO-style "SB: 2 Duress" line does not
+     even survive parseList's quantity regex — splitList has to strip the prefix
+     first or that card stays permanently unresolved. */
+  const d=parseDeck($('list').value);
+  const names=[...new Set([...d.cards, ...d.side].map(c=>c.name))];
   if(!names.length) return;
   btn.textContent='Looking up…'; btn.disabled=true;
   try{
@@ -2640,8 +3617,12 @@ async function lookup(){
         if(cd.card_faces) cd.card_faces.forEach(f=>{ if(f.name) DB[f.name.toLowerCase()]=DB[cd.name.toLowerCase()]; });
       });
     }
-    // auto-fill ramp/draw count
-    const {cards:cc}=parseList($('list').value);
+    /* Auto-fill the ramp/draw count from the MAINDECK only. Karsten's −0.28 term
+       counts cheap draw and ramp you are actually playing in game one; counting
+       sideboard copies would dock the land recommendation for cards that are not
+       in the deck. */
+    PD_VAL=null;                                   // the DB moved; the parse cache is stale
+    const {cards:cc}=parseDeck($('list').value);
     const rd=cc.filter(c=>c.rampdraw).reduce((s,c)=>s+c.qty,0);
     if(rd) $('ramp').value=rd;
     STATE.cardCache=DB; persist();   // cache card data so the tool works offline next time
@@ -2661,8 +3642,65 @@ async function lookup(){
 $('tabs').addEventListener('click',e=>{
   if(e.target.tagName!=='BUTTON') return;
   [...$('tabs').children].forEach(b=>b.classList.toggle('on',b===e.target));
-  ['verdict','lands','colors','curve','copies','payoffs','goldfish','method'].forEach(t=>
-    $('p-'+t).classList.toggle('hide', t!==e.target.dataset.t));
+  TAB=e.target.dataset.t;
+  ['verdict','lands','colors','curve','copies','payoffs','goldfish','compare','method'].forEach(t=>
+    $('p-'+t).classList.toggle('hide', t!==TAB));
+  // The compare panel is not computed while it is hidden, so build it on arrival.
+  if(TAB==='compare') renderCompare();
+});
+
+/* Variant switching and editing.
+
+   The chip bar is rebuilt by render(), so its buttons are bound by delegation
+   rather than individually — the same reason the payoff editor is. */
+$('vbar').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.id==='vAdd'){
+    const n=prompt('Name this variant — the matchup it is for, usually:','vs Control');
+    if(n===null) return;
+    const v=newVariant(n); VARIANTS.push(v); ACTIVE_V=v.id;
+    render(); markDirty(); return;
+  }
+  if(b.id==='vRename'){
+    const v=getVariant(ACTIVE_V); if(!v) return;
+    const n=prompt('Rename this variant:', v.name); if(n===null) return;
+    v.name=String(n).trim()||v.name; render(); markDirty(); return;
+  }
+  if(b.id==='vDelete'){
+    const v=getVariant(ACTIVE_V); if(!v) return;
+    if(!confirm(`Delete “${v.name}”? Its swaps go with it — the maindeck is untouched.`)) return;
+    VARIANTS=VARIANTS.filter(x=>x.id!==v.id); ACTIVE_V=null;
+    render(); markDirty(); return;
+  }
+  if(b.dataset.v!==undefined){
+    ACTIVE_V = b.dataset.v==='' ? null : +b.dataset.v;
+    /* Switching variant changes the deck the goldfish was dealt from, so its
+       existing hands are stale by the same argument an edit makes them stale.
+       gfMarkStale sees the new card list and flags it on the next render. */
+    render();
+    markDirty();
+  }
+});
+
+$('vEditor').addEventListener('click',e=>{
+  const v=getVariant(ACTIVE_V); if(!v) return;
+  if(e.target.id==='vAddSwap'){ v.swaps.push({out:'',in:'',qty:1}); render(); markDirty(); return; }
+  const del=e.target.closest('.vdel');
+  if(del){ v.swaps.splice(+del.dataset.si,1); render(); markDirty(); }
+});
+$('vEditor').addEventListener('change',e=>{
+  const v=getVariant(ACTIVE_V); if(!v) return;
+  const attr=e.target.dataset.attr; if(!attr) return;
+  const row=e.target.closest('[data-si]'); if(!row) return;
+  const sw=v.swaps[+row.dataset.si]; if(!sw) return;
+  sw[attr] = attr==='qty' ? Math.max(0,Math.floor(+e.target.value||0)) : e.target.value;
+  render(); markDirty();
+});
+
+$('cmpRun').addEventListener('click', cmpRun);
+$('cmpReseed').addEventListener('click',()=>{
+  $('cmpSeed').value = Math.floor(Math.random()*1e9);
+  if(CMP.sims) cmpRun();
 });
 
 /* Goldfish wiring. Every handler re-renders ONLY the goldfish panel — the tab
@@ -2802,7 +3840,7 @@ $('loadDemo').addEventListener('click',()=>{
   lookup();                                   // one click from empty to fully resolved
 });
 $('snap').addEventListener('click',()=>{
-  const A=analyse();
+  const A=currentA();
   SNAPSHOT={landCount:A.landCount,avgMV:A.avgMV,recR:A.recR};
   COLORS.forEach(c=>SNAPSHOT['src_'+c]=A.sources[c]);
   PAYOFFS.forEach(p=>{ const r=evalPayoff(p,A); SNAPSHOT['pay_'+p.id]= p.grab>1?r.pFull:r.pAtLeast1; });
@@ -2834,7 +3872,17 @@ const DEMO=`// Example: a generic 2-colour Standard midrange shell.
 4 Haunted Ridge
 4 Blood Crypt
 7 Mountain
-7 Swamp`;
+7 Swamp
+
+// Everything after this line is the sideboard. It is kept out of the deck,
+// and it is what the Compare tab builds sideboard plans from.
+Sideboard
+3 Duress
+3 Abrade
+2 Brotherhood's End
+2 Chandra, Dressed to Kill
+2 Kolaghan's Command
+3 Sheoldred's Edict`;
 
 STORAGE_OK = storageAvailable();
 if(!STORAGE_OK){

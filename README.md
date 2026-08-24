@@ -25,6 +25,7 @@ No install, no build step, no server. One HTML file.
 | **How Many Copies** | P(≥1 by turn N) at 1/2/3/4 copies — what the 3rd and 4th copy actually buy |
 | **Payoffs** | Odds that dig effects hit, plus tension analysis when two effects want different cards |
 | **Goldfish** | Deals hundreds of opening hands, scores each on the play and on the draw, and opens any one of them for card-by-card draws with live odds |
+| **Compare** | Every sideboard plan beside the maindeck — which one quietly breaks your mana, and what each does to your curve, colors and payoff odds |
 | **Method** | Full derivation and known limitations |
 
 Paste a decklist, hit **Look up costs (Scryfall)**, and everything recalculates as you type.
@@ -59,6 +60,12 @@ Feeding the re-derived table's own source counts back through this formula retur
 
 **Hand scores are a heuristic and are shown as one:** five weighted components, each reported with its reasoning — land count (35), whether the hand keeps acting through turn four (22), mean on-curve chance (25), curve spread (8), no dead cards (10). A 62 should be readable as *why* it's a 62, and the keep threshold is yours to move. Land count is judged against your deck's own ratio rather than a fixed 3–4 band, since a 17-land aggro deck and a 26-land control deck don't want the same opener.
 
+**Sideboard variants** run the same math over a different sixty. A variant — "vs Control", "vs Aggro" — is stored as a *diff* against the maindeck ("−2 Cut Down, +2 Duress"), so editing the deck updates every plan automatically instead of leaving fifteen stale copies behind. Pick one from the bar above the tabs and every panel describes that deck instead; the Compare tab lines them all up.
+
+What the comparison leads with isn't a ranking, it's **regressions**: the plans that push a color below the sources its most demanding spell needs, or drag the land count away from where your curve wants it. That's the failure this exists for — sideboarding breaks manabases quietly, one land or one double-pip card at a time, and nobody checks it by hand. There's no aggregate "best variant" score, because there's no defensible exchange rate between a point of color consistency and a point of payoff probability.
+
+Exact figures and sampled ones are kept apart. Curve, sources, land count and payoff odds are computed, so any difference is real. Keep rates are simulated, so every variant is dealt from the **same seeds** — a shared run of bad shuffles cancels out of the difference rather than being blamed on your swaps — and any gap inside its own sampling error is greyed out and labelled noise instead of dressed up as a finding.
+
 **Conditional duals (Verges)** are handled specially. Scryfall's `produced_mana` lists both colors with no signal about which is conditional, so counting them naively inflates your off-color by a full source each. The tool parses oracle text instead and discounts the off-color by the probability you control an enabling basic land type. Enablers are counted per permanent — a land carrying both required types (Blood Crypt, Hallowed Fountain) is still one permanent.
 
 ## Decklist format
@@ -69,7 +76,19 @@ Feeding the re-derived table's own source counts back through this formula retur
 2 Brotherhood's End
 ```
 
-Set codes, `x` notation, comments (`//`), and section headers are all handled.
+Set codes, `x` notation and comments (`//`) are all handled.
+
+Put a `Sideboard` line before your sideboard and it's kept out of the deck — which is what makes the Compare tab work, and stops a pasted 75-card export being analysed as a 75-card deck:
+
+```
+20 Mountain
+
+Sideboard
+3 Abrade
+2 Negate
+```
+
+`Sideboard`, `//Sideboard`, `SIDEBOARD:`, `Sideboard (15)` and MTGO's per-line `SB: 2 Abrade` are all recognised, as are `Deck` / `Maindeck` to switch back and `Maybeboard` to ignore a block entirely. A blank line is *not* treated as a sideboard marker — plenty of lists use one to separate spells from lands, and guessing wrong would silently move cards between decks.
 
 For cards Scryfall can't resolve (custom cards, or when offline):
 
@@ -81,7 +100,7 @@ For cards Scryfall can't resolve (custom cards, or when offline):
 
 ## Saving your work
 
-Builds autosave to browser storage and reopen where you left off. **Duplicate** a build, swap some cards, and flip between them to compare.
+Builds autosave to browser storage and reopen where you left off, sideboard variants included — a variant belongs to its deck, so it exports and imports with it. **Duplicate** a build, swap some cards, and flip between them to compare whole decks; use variants when you want to compare sideboard plans for one deck.
 
 Browser storage is convenience, not durability — use **Export build** / **Export all** to write real `.json` files. Those are the copy you own. (Opened from `file://` rather than a web server, some browsers block storage entirely; the tool warns you and falls back to export-only.)
 

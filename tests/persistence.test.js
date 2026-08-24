@@ -31,7 +31,8 @@ globalThis.Blob = class { constructor() {} };
 globalThis.URL = { createObjectURL: () => 'blob:', revokeObjectURL() {} };
 globalThis.render = () => {};
 
-load(['persistence'], { PAYOFFS: [], PID: 0, DB: {}, SNAPSHOT: null });
+load(['persistence'], { PAYOFFS: [], PID: 0, DB: {}, SNAPSHOT: null,
+                        VARIANTS: [], VID: 0, ACTIVE_V: null });
 
 group('a build captures the whole analysis context');
 fields.list = '4 Lightning Bolt\n20 Mountain';
@@ -116,6 +117,78 @@ lastAlert = ''; importPayload('this is not json');
 chk('malformed file explains itself instead of throwing', lastAlert.includes('not valid JSON'), lastAlert);
 lastAlert = ''; importPayload(JSON.stringify({ some: 'unrelated file' }));
 chk('unrelated JSON is rejected', lastAlert.includes('does not look like'), lastAlert);
+
+/* ------------------------------------------------------------------ */
+group('sideboard variants travel with the build');
+/* A variant is a diff against a maindeck, so it is meaningless anywhere else —
+   it lives inside the build and exports with it. */
+fields.list = '4 Cut Down\n20 Swamp\nSideboard\n4 Duress';
+VARIANTS = [{ id: 1, name: 'vs Control', note: '', swaps: [{ out: 'Cut Down', in: 'Duress', qty: 2 }] }];
+ACTIVE_V = 1;
+const vsnap = snapshotState();
+eq('schema is stamped', vsnap.schema, 2);
+eq('variants are saved', vsnap.variants.length, 1);
+eq('swaps are saved', vsnap.variants[0].swaps[0].qty, 2);
+eq('the selected variant is saved', vsnap.activeVariant, 1);
+chk('variants are deep-copied, not aliased to live state',
+    vsnap.variants !== VARIANTS && vsnap.variants[0] !== VARIANTS[0]);
+
+VARIANTS = []; ACTIVE_V = null; VID = 0;
+applyState(vsnap);
+eq('variants restored', VARIANTS.length, 1);
+eq('name restored', VARIANTS[0].name, 'vs Control');
+eq('swap restored', VARIANTS[0].swaps[0].out, 'Cut Down');
+eq('the selected variant is restored', ACTIVE_V, 1);
+eq('next variant id continues past the highest restored id', VID, 1);
+
+group('a build saved before variants existed still loads');
+applyState({ list: '4 Cut Down\n20 Swamp' });     // no schema, no variants key
+eq('no variants, and no crash', VARIANTS.length, 0);
+eq('nothing is selected', ACTIVE_V, null);
+eq('id counter resets', VID, 0);
+
+group('variants arriving from a file are rebuilt, not trusted');
+applyState({ list: '1 A', variants: 'not an array' });
+eq('a non-array is dropped', VARIANTS.length, 0);
+applyState({ list: '1 A', variants: [null, 5, { name: 'ok', swaps: [] }] });
+eq('junk entries are dropped', VARIANTS.length, 1);
+eq('the good one survives', VARIANTS[0].name, 'ok');
+applyState({ list: '1 A', variants: [{ name: 'v', swaps: 'nope' }] });
+eq('a non-array swap list becomes an empty one', VARIANTS[0].swaps.length, 0);
+applyState({ list: '1 A', variants: [{ name: 'v', swaps: [{ out: 'A', in: 'B', qty: '3' }] }] });
+eq('a string quantity is coerced to a number', VARIANTS[0].swaps[0].qty, 3);
+applyState({ list: '1 A', variants: [{ name: 'v', swaps: [{ out: 'A', in: 'B', qty: -9 }] }] });
+eq('a negative quantity is floored at zero', VARIANTS[0].swaps[0].qty, 0);
+applyState({ list: '1 A', variants: [{ name: 'v', swaps: [{ qty: 2 }] }] });
+eq('a swap naming neither card is dropped', VARIANTS[0].swaps.length, 0);
+applyState({ list: '1 A', variants: [{ swaps: [] }] });
+chk('an unnamed variant still gets a name', /Variant/.test(VARIANTS[0].name));
+
+group('variant ids stay unique and stable');
+applyState({ list: '1 A', variants: [{ id: 1, name: 'a', swaps: [] }, { id: 1, name: 'b', swaps: [] }],
+             activeVariant: 1 });
+chk('a duplicate id is reassigned', VARIANTS[0].id !== VARIANTS[1].id);
+applyState({ list: '1 A', variants: [{ id: 1, name: 'a', swaps: [] }, { id: 7, name: 'b', swaps: [] }],
+             activeVariant: 7 });
+eq('a gap in the ids is preserved', VARIANTS[1].id, 7);
+eq('…so the selection survives a deleted middle variant', ACTIVE_V, 7);
+eq('the counter starts above the highest', VID, 7);
+applyState({ list: '1 A', variants: [{ id: 1, name: 'a', swaps: [] }], activeVariant: 99 });
+eq('a selection pointing at nothing falls back to the maindeck', ACTIVE_V, null);
+
+/* Minting has to reserve every valid id before handing any out. Assigning in
+   array order lets an entry with a missing id take the lowest free number even
+   when a LATER entry legitimately owns it — which silently repoints the saved
+   selection at a different variant, the exact failure the ids exist to prevent. */
+applyState({ list: '1 A', variants: [{ name: 'no id' }, { id: 1, name: 'owns 1', swaps: [] }],
+             activeVariant: 1 });
+eq('a minted id does not steal a later variant’s', VARIANTS[1].id, 1);
+eq('the unnumbered one gets a free number instead', VARIANTS[0].id, 2);
+eq('so the selection still points where it was saved',
+   VARIANTS.find(v => v.id === ACTIVE_V).name, 'owns 1');
+
+VARIANTS = []; ACTIVE_V = null; VID = 0;
+fields.list = '4 Lightning Bolt\n20 Mountain'; fields.ramp = '7';
 
 group('exported bundle re-imports');
 STATE = { builds: { 'Deck A': snap }, active: 'Deck A', cardCache: {} };
