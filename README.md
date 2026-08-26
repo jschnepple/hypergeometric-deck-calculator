@@ -9,7 +9,7 @@ A single-file browser tool for tuning Magic: The Gathering decklists. Answers fo
 
 No install, no build step, no server. One HTML file.
 
-**Live: https://YOUR-USERNAME.github.io/mtg-mana-calculator/**
+**Live: https://jschnepple.github.io/mtg-mana-calculator/
 
 ---
 
