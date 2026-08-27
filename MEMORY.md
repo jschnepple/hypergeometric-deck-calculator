@@ -5,6 +5,7 @@ Read `CLAUDE.md` first for current state and conventions.
 
 | Date | File | Summary |
 |---|---|---|
+| 2026-08-27 | [consistency](memory/2026-08-27-consistency.md) | Deck goals, the London mulligan chain, and the Consistency tab. A goal is your own definition of a good opening hand — a conjunction of clauses over the seven you *look at* — and its probability is an exact multivariate hypergeometric over a **Venn-atom partition**, because partitioning per clause set both double-counts overlapping cards and stops one card satisfying two clauses at once. London then makes the chain closed-form, and the reason reads like a bug until you see it: you bottom cards *after* keeping, so evaluating the goal on the seven you look at is correct and *p* is identical at every mulligan. Cross-validated against the goldfish's own seeded dealer for six goals of different shapes. Found that the kickoff prompt's DoD had merged two opposite findings into one sentence — disjoint clause sets land *below* the naive product, overlapping ones *above* it — and asserted both. Three bugs found by writing the tests, one of them the second panel to be caught by the empty-shape broken-variant convention. 747 → 1016 tests, 1106 with jsdom. |
 | 2026-08-19 | [sideboard](memory/2026-08-19-sideboard.md) | Sideboards, named sideboard variants, and the Compare tab. A variant is a live **diff** against the maindeck, not a copy, so it follows the deck as you tune it; a stale swap marks the variant broken rather than half-applying. Found a live bug on the way — `parseList` skipped the `Sideboard` header and kept parsing, so every pasted export had its sideboard folded into the maindeck. Made `analyse()` pure to get there, which finally put the ANALYSIS section under test. The comparison separates exact figures from sampled ones, gives the sampled ones common random numbers and an explicit noise band, and refuses to invent a "best variant" score. 445 → 747 tests, plus a first-of-its-kind jsdom test that boots the real page and clicks through it. An adversarial review of the finished, all-green diff then found eight more bugs, every one of them living in the *seam* between two individually-correct functions. |
 | 2026-08-12 | [goldfish](memory/2026-08-12-goldfish.md) | The opening-hand simulator. Seeded per-hand shuffles, keepability scored on the play and on the draw, drill-in with card-by-card draws and live conditional odds. Defined the on-curve probability that the tool never actually had — `P(hold) × P(lands) × P(colours\|lands)`, the last computed exactly and divided back out to avoid double-counting the land requirement. Feeding `DERIVED`'s own source counts back through it returns 0.88–0.94 flat across the grid: closed form and Monte Carlo agreeing independently. Found two real scorecard bugs (one-land hands kept 79% of the time) and four test bugs. 221 → 445 tests. |
 | 2026-08-11 | [glassmorphism-overhaul](memory/2026-08-11-glassmorphism-overhaul.md) | The visual pass. Token system, three-elevation glass over a fixed bloom backdrop, motion built to survive a per-keystroke `innerHTML` rebuild, contrast solved numerically rather than by eye. Functionality untouched, 221 tests green throughout. Two findings that will bite anyone who forgets them: nested surfaces need a *dark* overlay, and CSS transitions are dead code on elements this app recreates every keystroke. |
@@ -13,26 +14,32 @@ Read `CLAUDE.md` first for current state and conventions.
 
 ## Next intent
 
-**Session 6 is the Consistency tab** — user-defined deck goals ("≥1 Leyline Axe and
-≥2 lands", "≥3 card types"), their exact probability in an opening hand, the London
-mulligan chain solved in closed form, and a frontier of how strict a keep rule is
-against the cards it costs you. It answers the question Jeff actually posed: *how
-aggressively should I mulligan for the start this deck wants?* Design in
-[plan-consistency](memory/plan-consistency.md), kickoff prompt in
-[next-session-prompt-consistency](memory/next-session-prompt-consistency.md).
+**Nothing is queued.** Session 6 shipped the Consistency tab, which was the last
+thing with a written plan behind it. Candidates, in rough order of value:
 
-Still open behind it: mobile layout (the compare matrix is now the widest thing in
-the app and has never been looked at on a narrow screen), card-name autocomplete,
-a sample-deck gallery, richer payoff filters, and the modelling gaps. Sequencing
-land drops so taplands cost a turn remains the largest of those, and is a
-prerequisite for ever modelling delirium properly. Older gaps still open: mana
-rocks and dorks uncounted, X spells reading as MV 0, split-card pips summed.
+- **Mobile layout.** Never looked at. The compare matrix is the widest thing in
+  the app and the goal builder is now the densest thing in the 400px left column.
+  The frontier SVG has also never been rendered by a real browser at any width —
+  `viewBox` scaling is precisely what jsdom does not model.
+- **Sequenced land drops**, so a tapland costs a turn. Still the largest modelling
+  gap, and still the prerequisite for modelling real delirium rather than the
+  upper bound the Consistency tab ships.
+- **Goals in the Compare tab**, as a second row group — "what does this sideboard
+  plan do to my Leyline start?". The plan raised it as an open question; the maths
+  is already variant-aware, so only the presentation is missing.
+- Card-name autocomplete, a sample-deck gallery, richer payoff filters, and the
+  older gaps: mana rocks and dorks uncounted, X spells reading as MV 0,
+  split-card pips summed.
 
 - [next-session-prompt-consistency](memory/next-session-prompt-consistency.md) —
-  **PENDING**, session 6. The paste-ready kickoff.
-- [plan-consistency](memory/plan-consistency.md) — **PENDING**, session 6. The
-  spec: the goal abstraction, the Venn-atom partition, the London insight, and
-  the delirium scoping call.
+  **DONE**, session 6. Kept for the record. One line of its DoD turned out to be
+  wrong — see the memory — and its test counts are now stale.
+- [plan-consistency](memory/plan-consistency.md) — **DONE**, session 6. Kept
+  because the agreed decisions and their reasoning are still the spec for that
+  tab. Its three open questions were answered: goals ARE evaluated against the
+  active variant automatically; showing them per-variant in Compare was deferred;
+  and the hand-score heuristic was NOT added as a third frontier axis, because
+  the chart's whole point is two clean quantities.
 - [plan-sideboard](memory/plan-sideboard.md) — **DONE**, session 5. Kept because the
   agreed decisions and their reasoning are still the spec for that feature.
 - [plan-goldfish](memory/plan-goldfish.md) — **DONE**, session 4. Kept because the
@@ -95,6 +102,33 @@ rocks and dorks uncounted, X spells reading as MV 0, split-card pips summed.
   `SECTIONS`.** The slice *before* the new banner has to be re-pointed to end at
   it, or it silently swallows everything you just added. `SIDEBOARD` and
   `COMPARE` were added this way in session five.
+- **Overlapping clause sets need a VENN partition, not a per-set one.** Every
+  card belongs to exactly one atom — the group sharing its full membership
+  signature. Partitioning per set both double-counts an overlapping card and
+  requires *distinct* cards for each clause, so a red creature stops being able
+  to satisfy "a red card" and "a creature" at once. Same family as the colour
+  source trap, and easy to reintroduce the next time two categories overlap.
+- **Clauses are not independent events, and the error has two signs.** Disjoint
+  sets compete for the seven slots, so the exact joint is BELOW the product of
+  the clauses taken separately; overlapping sets are positively correlated and
+  land ABOVE it. Multiplying two probabilities together asserts independence in
+  both cases and is wrong in both.
+- **Under London you bottom AFTER keeping, so evaluating a goal on the seven you
+  LOOK AT is correct.** `p` is therefore the same at every mulligan and the chain
+  is geometric in closed form. Under the old Vancouver rule this would have been
+  wrong, which is why it reads like an off-by-one to anyone who has not thought
+  it through — do not "fix" it.
+- **`total===0` is not a reliable test for "no deck".** A broken variant carries
+  the analysis SHAPE, empty, so it has total zero and any check that reaches the
+  empty state first tells the user to paste a list they already pasted. Two
+  panels have been caught by this now; check `broken` first.
+- **An unfinished input is refused, not answered.** A half-applied variant swap,
+  a goal clause with no card chosen — both get an explanation rather than a
+  confident number. Plausible-looking wrong answers are the failure this codebase
+  keeps rediscovering, and refusing is cheaper than being subtly wrong.
+- **A test holding a DOM node across an edit stops testing.** `render()` rebuilds
+  panels wholesale, so a node captured before a change is detached and the events
+  fired at it go nowhere. Re-query after every interaction in `dom.test.js`.
 - **Green is not finished — read the diff adversarially before wrapping up.**
   Session five's feature passed 703 tests including a jsdom run that clicked
   through the whole flow, and a review of the diff still found eight real bugs.

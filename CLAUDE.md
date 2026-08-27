@@ -44,8 +44,8 @@ MEMORY.md           index of memories
 ```
 
 `index.html` is organised by banner comments (`MATH CORE`, `PARSING`, `SIDEBOARD`,
-`ANALYSIS`, `DIG PAYOFFS`, `GOLDFISH`, `COMPARE`, `RENDER`, `PERSISTENCE`,
-`SCRYFALL`, `WIRING`). **The
+`ANALYSIS`, `DIG PAYOFFS`, `GOALS`, `GOLDFISH`, `COMPARE`, `RENDER`,
+`PERSISTENCE`, `SCRYFALL`, `WIRING`). **The
 tests slice on those banners** — rename one and `tests/extract.js` will fail loudly
 with the banner name. That is intentional. Adding a banner means editing
 `SECTIONS`: the slice before it must be re-pointed to end at the new name, or it
@@ -54,8 +54,15 @@ silently swallows everything you just added.
 ## Testing
 
 ```bash
-node tests/run-all.js      # 747 tests, ~12s, zero dependencies
-npm install jsdom          # optional; adds 53 more from dom.test.js
+node tests/run-all.js      # 1016 tests, ~13s, zero dependencies
+npm install jsdom          # optional; adds 90 more from dom.test.js
+```
+
+In a sandbox that cannot write to the checkout, jsdom goes somewhere else:
+
+```bash
+npm install --prefix /tmp/jd --cache /tmp/npmcache jsdom
+NODE_PATH=/tmp/jd/node_modules node tests/run-all.js
 ```
 
 Tests run against the **shipped** `index.html`, not a copy — `extract.js` pulls the
@@ -311,15 +318,92 @@ compare against the maindeck.
 - `esc()` was added in COMPARE and is the first HTML-escaping helper in the
   file. Variant names are user input rendered into markup; use it.
 
-## Current state — 2026-08-19 (session 5)
+## The Consistency tab
 
-**Done.** 747 tests green (800 with jsdom installed). Session 2 loaded the first
+Added in session 6 (`memory/2026-08-27-consistency.md`, planned in
+`memory/plan-consistency.md`). A **goal** is your own definition of a good
+opening hand; the tab reports its exact probability, solves the London mulligan
+chain in closed form, and plots strictness against the cards it costs.
+
+- **A goal is a conjunction of clauses over the seven you LOOK AT.** Two clause
+  kinds and no more: `{kind:'cards', n, sel}` (at least *n* from a set, where
+  `sel` is a named card list or a filter handed to `matches()`) and
+  `{kind:'types', n}` (at least *n* distinct card types). Anything richer needs
+  a language rather than two dropdowns, and these two cover both worked
+  examples — Leyline Axe starts and delirium.
+- **The Venn partition is the whole correctness story.** `vennAtoms` puts every
+  card in exactly one atom, the group belonging to precisely the same subset of
+  the clause sets. Partitioning per *set* double-counts an overlapping card —
+  the trap the Method tab documents for colour sources — and worse, it makes a
+  card that satisfies two clauses at once look as though it can only satisfy
+  one. A `types` clause contributes one set per card type present, so the set
+  count is not bounded by the clause count; over 30 sets the mask would wrap and
+  `vennAtoms` returns null instead.
+- **Both naive shortcuts are wrong, in opposite directions.** Disjoint clause
+  sets compete for the seven slots, so the exact joint is BELOW the product of
+  the clauses taken separately. Overlapping sets go the other way, because one
+  card does both jobs. `tests/goals.test.js` asserts both signs; the kickoff
+  prompt's DoD claimed only the "lower" one, and it is the disjoint case.
+- **`method` is the label, and it never switches quietly.** Over the enumeration
+  budget the figure is sampled and says so, reusing the Compare tab's
+  exact-vs-sampled distinction. `opts.budget` exists so a test can force the
+  fallback deterministically rather than hunting a pathological deck.
+- **London is what makes the chain closed-form, and it reads like a bug.** You
+  look at a fresh seven every time and bottom AFTER keeping, so `p` is identical
+  at every mulligan and evaluating the goal on the seven you look at is correct.
+  Under Vancouver it would have been wrong. Stated in the code, in Method, and
+  here, because a reader who has not thought it through will "fix" it.
+- **`mulliganChain`'s `maxMulls` is how long you insist, not the total.** Looks
+  0..M stop on success; if look M fails you mulligan once more and keep whatever
+  comes, at hand size 7−(M+1). The stop distribution sums to 1 and is printed in
+  full — the policy is easier to read off the table than off the parameter.
+- **No best policy, ever.** `goalFrontier` returns points and `frontierKnee`
+  names the bend. There is no defensible exchange rate between "has the Axe" and
+  "has six cards instead of five", the same reason the Compare tab refuses to
+  rank variants.
+- **An unfinished goal is REFUSED, not answered.** `goalIssues` distinguishes
+  `blocked` (a named clause with no card chosen — do not evaluate) from `warn`
+  (complete but impossible in this list — a real 0%, with an explanation). A
+  confident 0% for a goal the user has not finished writing is the same failure
+  as analysing a half-applied variant swap.
+- **`consistencyHTML` checks `A.broken` BEFORE `A.total===0`.** A broken variant
+  carries the analysis shape empty, so the ordinary empty state would tell you
+  to paste a decklist you already pasted. Found by the view test, not by eye.
+- **`pGoalCached` keys on everything `pGoal` reads** — quantities, names, type
+  lines, mana values, the land verdict. A Scryfall lookup changes no name and no
+  quantity and changes every type line; session five's compare-signature bug was
+  exactly this shape.
+- **`cardTypes` reads the segment BEFORE the em dash** and matches whole words
+  from a fixed list. Supertypes are not card types; subtypes are not card types;
+  Tribal folds into Kindred. It relies on `typeLine` being the FRONT face, which
+  `SCRYFALL` guarantees — a combined DFC line would read "Sorcery // Land" as two
+  types, one of which the card does not have in your hand.
+- **`renderConsistency()` returns immediately unless its tab is on screen**, like
+  `renderCompare()`, and the tab handler calls it on arrival. It evaluates
+  against `currentA()`, so a sideboard plan that cuts the payoff moves the
+  frontier.
+- Goals are per-build state at **schema 3**, with `sanitizeGoals` mirroring
+  `sanitizeVariants` — including reserving valid ids before minting new ones,
+  because the panel keys its headline tween on the goal id. A `types` clause
+  arriving with a stale `sel` has it dropped: a clause whose description and
+  whose maths disagree is worse than one that is merely wrong.
+- GOALS view builders reach into COMPARE for `esc` and RENDER for `empty` and
+  `NUMSTATE`. Fine at runtime, invisible to `extract.js`, so
+  `tests/goalsview.test.js` seeds stand-ins. Rename either and that file needs
+  the same rename.
+
+## Current state — 2026-08-27 (session 6)
+
+**Done.** 1016 tests green (1106 with jsdom installed). Session 2 loaded the first
 real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
 with functionality frozen; session 4 added the Goldfish tab and produced the
 strongest cross-validation the mana math has had — the closed-form conditional
 model and the `research/mana-engine` Monte Carlo agreeing to ~2 points across the
 whole grid. Session 5 added sideboards, variants and the Compare tab, made
 `analyse()` pure on the way, and fixed the silent sideboard-folding bug.
+Session 6 added deck goals, the Venn-atom partition, the London mulligan chain
+and the Consistency tab, and cross-validated the new maths against the goldfish's
+own dealer for six goals of different shapes.
 
 Remaining modelling gaps — mana rocks and dorks uncounted, X spells reading as mana
 value 0, split-card pips summed — are documented in the Method tab and all err
@@ -334,21 +418,34 @@ but if that gate is ever removed it becomes the first place to look. `render()`
 would otherwise parse the list several times per keystroke, which is what
 `parseDeckCached` is for.
 
+The consistency panel has the same gate and, behind it, `pGoalCached`. A realistic
+three-clause goal enumerates in about 0.1ms; a goal whose clauses slice the deck
+into ten atoms took 16ms in a scratch measurement, and that is per goal per
+keystroke without the memo. If that panel ever feels slow, check the memo key is
+still busting correctly before touching the enumeration.
+
 **Still never opened in a real browser by the agent** — but the gap is narrower
 than it was. `tests/dom.test.js` now boots the actual page in jsdom and drives the
-whole sideboard flow with real clicks, so wiring, element ids and handler
-behaviour are covered. What remains unverified is anything jsdom does not do:
-layout, wrapping at narrow widths, `backdrop-filter`, and whether the compare
-matrix reads well when it gets wide enough to scroll.
+whole sideboard flow AND the whole consistency flow with real clicks, so wiring,
+element ids and handler behaviour are covered. What remains unverified is anything
+jsdom does not do: layout, wrapping at narrow widths, `backdrop-filter`, whether
+the compare matrix reads well when it gets wide enough to scroll, and **whether
+the frontier SVG scales properly** — it is the first chart in the app that is not
+built from divs, and `viewBox` behaviour is exactly what jsdom does not model.
+The goal builder is also now the densest thing in the 400px left column.
 
-**Next up: the Consistency tab** (`memory/plan-consistency.md`, kickoff prompt in
-`memory/next-session-prompt-consistency.md`). User-defined deck goals evaluated
-exactly on the opening hand, the London mulligan chain in closed form, and a
-strictness-vs-cards frontier — answering "how aggressively should I mulligan for
-the start this deck wants". Behind it: mobile layout (the compare matrix is the
-widest thing in the app and the most likely to need it), card-name autocomplete,
-a sample-deck gallery, or closing one of the modelling gaps — sequenced land
-drops is still the biggest, and is a prerequisite for modelling delirium.
+**Next up:** nothing is queued. The obvious candidates, in rough order of value:
+
+- **Mobile layout.** The compare matrix is still the widest thing in the app and
+  the goal builder is the most cramped, and neither has been looked at narrow.
+- **Sequenced land drops.** Still the largest modelling gap, and still the
+  prerequisite for ever modelling real delirium rather than the upper bound the
+  Consistency tab ships.
+- **Goals in the Compare tab**, as a second row group — "what does this sideboard
+  plan do to my Leyline start". The plan flagged it as an open question and the
+  maths is already variant-aware; only the presentation is missing.
+- Card-name autocomplete, a sample-deck gallery, or the older gaps: mana rocks
+  and dorks uncounted, X spells reading as MV 0, split-card pips summed.
 
 **One manual step outstanding:** GitHub Pages may still need enabling —
 Settings → Pages → source `main` / root. `.nojekyll` is committed, but Pages itself

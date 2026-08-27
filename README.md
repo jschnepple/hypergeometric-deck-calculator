@@ -25,6 +25,7 @@ No install, no build step, no server. One HTML file.
 | **How Many Copies** | P(≥1 by turn N) at 1/2/3/4 copies — what the 3rd and 4th copy actually buy |
 | **Payoffs** | Odds that dig effects hit, plus tension analysis when two effects want different cards |
 | **Goldfish** | Deals hundreds of opening hands, scores each on the play and on the draw, and opens any one of them for card-by-card draws with live odds |
+| **Consistency** | Your own definition of a good opening hand — how often you get it, what mulliganing for it costs you in cards, and where digging stops being worth it |
 | **Compare** | Every sideboard plan beside the maindeck — which one quietly breaks your mana, and what each does to your curve, colors and payoff odds |
 | **Method** | Full derivation and known limitations |
 
@@ -59,6 +60,16 @@ On-curve chance for a card of mana value *m* is `P(you hold it) × P(m lands by 
 Feeding the re-derived table's own source counts back through this formula returns 88–94% castability, essentially flat across one to three pips and turns one to seven. Those counts came from a Monte Carlo sharing no code with this calculation, so closed form and simulation agree independently — and the *flatness* is the evidence, since bad conditioning makes the figure drift with turn number rather than hold level.
 
 **Hand scores are a heuristic and are shown as one:** five weighted components, each reported with its reasoning — land count (35), whether the hand keeps acting through turn four (22), mean on-curve chance (25), curve spread (8), no dead cards (10). A 62 should be readable as *why* it's a 62, and the keep threshold is yours to move. Land count is judged against your deck's own ratio rather than a fixed 3–4 band, since a 17-land aggro deck and a 26-land control deck don't want the same opener.
+
+**Deck goals** are your own standard for a good opening hand, written as a conjunction of clauses: "at least one Leyline Axe *and* at least two lands", "at least three distinct card types *and* at least two lands". The probability is exact — a multivariate hypergeometric over a **Venn partition** of the deck, where every card falls into exactly one atom according to which of your clause sets it belongs to.
+
+The partition is the whole point. Partitioning per clause *set* double-counts every card that's in two of them, and worse, it makes a card that satisfies two clauses at once look as though it can only satisfy one — "at least one red card and at least one creature" quietly becomes "two different cards". Multiplying the clauses together instead asserts they're independent events, and they never are: disjoint sets compete for the same seven slots, so the true answer is *below* the product; overlapping sets go the other way.
+
+**The mulligan question** — how hard should I dig for that start? — has a clean answer under the London rule, and the reason is easy to misread. You look at a fresh seven every time and bottom cards only *after* deciding to keep, so evaluating the goal on the seven you look at is correct (it would not have been under the old Vancouver rule), the chance a look meets your goal is the same at every mulligan, and the whole chain is geometric in closed form. The cost of insisting is therefore nothing but cards.
+
+So the tab plots the frontier: P(you end up on the start you wanted) against the expected size of the hand you keep, one point per policy. It names the knee and stops there. There's no defensible exchange rate between "has the Axe" and "has six cards instead of five", so nothing is marked best.
+
+Delirium *by turn N* is deliberately not modelled — that needs a play policy, self-mill and fetch sequencing. Distinct types in the opening hand is exact; distinct types **seen** by a turn is an upper bound and is labelled as one.
 
 **Sideboard variants** run the same math over a different sixty. A variant — "vs Control", "vs Aggro" — is stored as a *diff* against the maindeck ("−2 Cut Down, +2 Duress"), so editing the deck updates every plan automatically instead of leaving fifteen stale copies behind. Pick one from the bar above the tabs and every panel describes that deck instead; the Compare tab lines them all up.
 
