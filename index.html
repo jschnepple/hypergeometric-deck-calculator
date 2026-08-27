@@ -1910,12 +1910,21 @@ function goalEnumerate(spec, flat, part, handSize, budget){
    Built once per run rather than once per hand — the sampled path deals tens of
    thousands of hands and rebuilding a Set inside that loop dominated it. */
 function compileGoal(spec){
-  return spec.map(cl=>({
-    kind: cl.kind,
-    n: cl.n,
-    set: cl.kind==='types' ? null : new Set(cl.sets[0].cards),
-    types: cl.kind==='types' ? cl.sets.map(s=>s.type) : null
-  }));
+  return spec.map(cl=>{
+    if(cl.kind!=='types') return {kind:cl.kind, n:cl.n, set:new Set(cl.sets[0].cards), types:null};
+    /* Types come from the sets goalSets already built, not from a fresh call to
+       cardTypes. Two reasons: it is the difference between reading a type line
+       once per card and once per card per dealt hand, and — the one that
+       matters — it makes the sampled path resolve types through exactly the same
+       code the exact path did. Two spellings of "what types is this card" is a
+       seam, and a cross-validation that runs down both of them proves less. */
+    const byCard = new Map();
+    cl.sets.forEach(s=>s.cards.forEach(c=>{
+      const a = byCard.get(c);
+      if(a) a.push(s.type); else byCard.set(c, [s.type]);
+    }));
+    return {kind:'types', n:cl.n, set:null, types:byCard};
+  });
 }
 
 /* Does one concrete hand satisfy the goal? Used by the sampled fallback and by
@@ -1924,7 +1933,10 @@ function goalHitsHand(compiled, hand){
   for(const cl of compiled){
     if(cl.kind==='types'){
       const seen = new Set();
-      for(const c of hand) for(const t of cardTypes(c)) seen.add(t);
+      for(const c of hand){
+        const ts = cl.types.get(c);
+        if(ts) for(const t of ts) seen.add(t);
+      }
       if(seen.size < cl.n) return false;
     } else {
       let k=0;
@@ -1962,7 +1974,8 @@ function pGoalSampled(spec, cards, handSize, seed, trials){
 function pGoal(goal, cards, handSize, opts){
   const h = Math.max(0, Math.floor(handSize==null ? 7 : handSize));
   const spec = goalSets(goal, cards);
-  if(!spec.length) return {p:1, method:'exact', atoms:0, sets:0, trivial:true, spec};
+  if(!spec.length) return {p:1, method:'exact', atoms:0, sets:0, trivial:true, spec,
+                           total:(cards||[]).reduce((s,c)=>s+Math.max(0,Math.floor(+c.qty||0)),0)};
 
   const flat = flatSets(spec);
   const part = vennAtoms(flat.flat, cards);
@@ -2129,7 +2142,7 @@ function pTypesSeenBy(cards, turn, onPlay, want){
    goldfish and compare builders do — extract.js cannot reach RENDER, and a
    broken template literal does not throw, it renders the word `undefined`
    inside a percentage and nothing notices. */
-let GOALS=[], GOID=0, GOAL_MULLS=2;
+let GOALS=[], GOID=0;
 
 function newGoal(name, clauses){
   return {id:++GOID, name:String(name||'').trim()||`Goal ${GOID}`,
@@ -2226,7 +2239,12 @@ function goalEval(goal, cards, handSize, maxMulls, opts){
   const spec   = goalSets(goal, cards);
   const r      = ready ? pGoalCached(goal, cards, handSize, opts) : null;
   const chain  = r ? mulliganChain(r.p, maxMulls, handSize) : null;
-  return {goal, spec, r, chain, issues, ready, handSize};
+  /* `cards` and `onPlay` are carried so the views can ask a follow-up question
+     of the same list — the types-seen bound needs both, and reaching back to a
+     global for them is how a panel ends up describing a different deck from the
+     one its headline figure came from. */
+  return {goal, spec, r, chain, issues, ready, handSize, cards,
+          onPlay: !(opts && opts.onPlay===false)};
 }
 const goalEvals = (goals, cards, handSize, maxMulls, opts)=>
   (goals||[]).map(g=>goalEval(g, cards, handSize, maxMulls, opts));
@@ -2286,6 +2304,27 @@ function goalClauseHTML(ev){
   }).join('');
 }
 
+/* Distinct card types SEEN by a turn, for a goal that asks about types.
+
+   This is NOT delirium and the block says so twice — once in the heading and
+   once in the body — because a number labelled "delirium by turn 3" that is
+   really an upper bound is exactly the confident-optimistic figure the plan
+   refused to ship. Seeing a type is not putting it in your graveyard. */
+function goalTypesHTML(ev){
+  const t = ((ev.goal && ev.goal.clauses) || []).find(c=>c && c.kind==='types');
+  if(!t || !ev.cards) return '';
+  const want = Math.max(1, Math.floor(+t.n||1));
+  const bands = [1,2,3,4].map(turn=>{
+    const r = pTypesSeenBy(ev.cards, turn, ev.onPlay, want);
+    return `<span><b>${glPct(r.p)}</b>by turn ${turn} · ${r.seen} cards seen</span>`;
+  }).join('');
+  return `<div class="note" style="margin-top:var(--s4)">
+    <b>${want} distinct card types among the cards you have SEEN</b> — a <b>ceiling</b> on delirium, not delirium.
+    Seeing a type is not putting it in your graveyard; turning delirium on needs a play policy, self-mill and fetch
+    sequencing, none of which is modelled here. The opening-hand figure above is exact; these are bounds.
+    <div class="gfbands">${bands}</div></div>`;
+}
+
 function goalCardHTML(ev){
   const g = ev.goal;
   const head = `<div class="row" style="justify-content:space-between;margin-bottom:8px">
@@ -2327,7 +2366,8 @@ function goalCardHTML(ev){
       ? `Exact, over ${ev.r.atoms} disjoint atom${ev.r.atoms===1?'':'s'} of the ${ev.r.total}-card list.`
       : `Estimated from ${ev.r.trials} dealt hands of the ${ev.r.total}-card list.`}
       Insisting ${ch.maxMulls===0?'not at all':`up to ${ch.maxMulls} time${ch.maxMulls===1?'':'s'}`} moves you from
-      ${glPct(p)} to ${glPct(ch.pGoal)} and costs ${glCards(7-ch.eCards)} cards on average.</div>
+      ${glPct(p)} to ${glPct(ch.pGoal)} and costs ${glCards(ev.handSize-ch.eCards)} cards on average.</div>
+    ${goalTypesHTML(ev)}
   </div>`;
 }
 
@@ -2431,10 +2471,10 @@ function consistencyHTML(A, evals, series, maxMulls){
   const ready = evals.filter(e=>e.ready);
   const frontier = ready.length ? `<div class="card">
       <h2>How hard to dig</h2>
-      <div class="note">Each point is a policy: keep the first hand that meets the goal, giving up after that many
-        mulligans. Going right to left you insist harder — you get the start you want more often, and you keep
-        fewer cards when you do. No point on this curve beats another, which is why nothing here is marked
-        best.</div>
+      <div class="note">Each point is a policy: keep the first hand that meets the goal, and give up after
+        ${maxMulls===0 ? 'none' : `0 to ${maxMulls}`} mulligan${maxMulls===1?'':'s'}. Going right to left you insist
+        harder — you get the start you want more often, and you keep fewer cards when you do. No point on this curve
+        beats another, which is why nothing here is marked best.</div>
       ${goalChartHTML(series)}
       ${goalKneeHTML(series)}
     </div>` : '';
@@ -3838,8 +3878,11 @@ function renderConsistency(A){
   if(TAB!=='consistency') return;
   const a = A || currentA();
   const mulls = Math.max(0, Math.min(6, +$('glMulls').value||0));
+  /* Fixed at seven, and not a control. Under London every look is a fresh
+     seven whatever you are on the play or the draw — the extra card on the draw
+     arrives in your draw step, after the keep decision this tab is about. */
   const hand = 7;
-  const evals = goalEvals(GOALS, a.cards, hand, mulls);
+  const evals = goalEvals(GOALS, a.cards, hand, mulls, {onPlay:a.onPlay});
   const ready = evals.filter(e=>e.ready).map(e=>e.goal);
   const series = ready.length ? goalSeries(ready, a.cards, hand, mulls) : [];
 

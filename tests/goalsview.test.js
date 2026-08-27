@@ -198,6 +198,56 @@ group('user text is escaped');
 }
 
 /* ============================================================
+   THE DELIRIUM CEILING
+   ============================================================ */
+group('a types goal gets a bound, and it is labelled as one');
+
+{
+  const ev = goalEval(DELIRIUM, CARDS, 7, 2, { onPlay: true });
+  const html = goalTypesHTML(ev);
+  sweep('the types block leaks nothing', html);
+  chk('it says ceiling, not delirium', /ceiling/i.test(html) && /not delirium/i.test(html));
+  chk('it explains what is missing', /play policy/.test(html) && /self-mill/.test(html));
+  eq('it covers four turns', (html.match(/by turn \d/g) || []).length, 4);
+  chk('and states how many cards each turn has seen', /7 cards seen/.test(html));
+
+  /* Seeing more cards cannot lower the bound, and the bound cannot fall below
+     the exact opening-hand figure it extends. */
+  const nums = [...html.matchAll(/<b>(\d+\.\d)%<\/b>/g)].map(m => +m[1]);
+  eq('four figures', nums.length, 4);
+  chk('and they never go backwards', nums.every((n, i) => i === 0 || n >= nums[i - 1]), nums.join(' '));
+  const exact = pGoal({ clauses: [{ kind: 'types', n: 3 }] }, CARDS, 7).p * 100;
+  chk('the turn-one bound IS the opening-hand figure', Math.abs(nums[0] - exact) < 0.06,
+      `${nums[0]} vs ${exact}`);
+}
+{
+  const onDraw = goalTypesHTML(goalEval(DELIRIUM, CARDS, 7, 2, { onPlay: false }));
+  chk('on the draw the first turn has seen eight', /8 cards seen/.test(onDraw));
+}
+{
+  eq('a goal with no types clause gets no block', goalTypesHTML(goalEval(READY, CARDS, 7, 2)), '');
+  eq('a blocked goal gets no block', goalTypesHTML(goalEval(BLOCKED, CARDS, 7, 2)), '');
+}
+{
+  const html = build([DELIRIUM]);
+  chk('and the panel carries it', /ceiling/i.test(html));
+  sweep('with the block in place, still nothing leaks', html);
+}
+
+group('the reported cost of insisting comes from the hand size it was computed at');
+{
+  /* Not from a hardcoded seven. The two have agreed since the day this shipped,
+     which is exactly the condition under which one of them drifts unnoticed. */
+  const ev = goalEval(READY, CARDS, 5, 2);
+  const html = goalCardHTML(ev);
+  const cost = (5 - ev.chain.eCards).toFixed(2);
+  chk(`the cost is quoted against a five-card look (${cost})`, html.includes(`${cost} cards on average`),
+      (html.match(/costs [\d.]+ cards/) || [''])[0]);
+  chk('and the headline says five, not seven', /chance a fresh 5 meets it/.test(html));
+  sweep('a non-seven hand size leaks nothing', html);
+}
+
+/* ============================================================
    THE CHART
    ============================================================ */
 group('the frontier chart is well-formed');
