@@ -13,17 +13,26 @@ Read `CLAUDE.md` first for current state and conventions.
 
 ## Next intent
 
-Nothing queued. Mobile layout has moved up the list: the compare matrix is now the
-widest thing in the app and the only part of it that has never been looked at on a
-narrow screen. Other open choices: card-name autocomplete, a sample-deck gallery,
-or closing a modelling gap. The goldfish added three of its own worth weighing
-against the older ones — sequencing land drops so taplands cost a turn (the largest
-and most valuable), a London mulligan chain with auto-bottoming, and Verge
-conditional halves in the hypergeometric partition.
+**Session 6 is the Consistency tab** — user-defined deck goals ("≥1 Leyline Axe and
+≥2 lands", "≥3 card types"), their exact probability in an opening hand, the London
+mulligan chain solved in closed form, and a frontier of how strict a keep rule is
+against the cards it costs you. It answers the question Jeff actually posed: *how
+aggressively should I mulligan for the start this deck wants?* Design in
+[plan-consistency](memory/plan-consistency.md), kickoff prompt in
+[next-session-prompt-consistency](memory/next-session-prompt-consistency.md).
 
-Older gaps still open: mana rocks and dorks uncounted, X spells reading as MV 0,
-split-card pips summed.
+Still open behind it: mobile layout (the compare matrix is now the widest thing in
+the app and has never been looked at on a narrow screen), card-name autocomplete,
+a sample-deck gallery, richer payoff filters, and the modelling gaps. Sequencing
+land drops so taplands cost a turn remains the largest of those, and is a
+prerequisite for ever modelling delirium properly. Older gaps still open: mana
+rocks and dorks uncounted, X spells reading as MV 0, split-card pips summed.
 
+- [next-session-prompt-consistency](memory/next-session-prompt-consistency.md) —
+  **PENDING**, session 6. The paste-ready kickoff.
+- [plan-consistency](memory/plan-consistency.md) — **PENDING**, session 6. The
+  spec: the goal abstraction, the Venn-atom partition, the London insight, and
+  the delirium scoping call.
 - [plan-sideboard](memory/plan-sideboard.md) — **DONE**, session 5. Kept because the
   agreed decisions and their reasoning are still the spec for that feature.
 - [plan-goldfish](memory/plan-goldfish.md) — **DONE**, session 4. Kept because the

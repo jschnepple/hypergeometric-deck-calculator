@@ -341,10 +341,14 @@ behaviour are covered. What remains unverified is anything jsdom does not do:
 layout, wrapping at narrow widths, `backdrop-filter`, and whether the compare
 matrix reads well when it gets wide enough to scroll.
 
-**Next up:** open. Mobile layout (the compare matrix is the widest thing in the
-app and the most likely to need it), card-name autocomplete, a sample-deck
-gallery, or closing one of the modelling gaps — sequenced land drops is still
-the biggest.
+**Next up: the Consistency tab** (`memory/plan-consistency.md`, kickoff prompt in
+`memory/next-session-prompt-consistency.md`). User-defined deck goals evaluated
+exactly on the opening hand, the London mulligan chain in closed form, and a
+strictness-vs-cards frontier — answering "how aggressively should I mulligan for
+the start this deck wants". Behind it: mobile layout (the compare matrix is the
+widest thing in the app and the most likely to need it), card-name autocomplete,
+a sample-deck gallery, or closing one of the modelling gaps — sequenced land
+drops is still the biggest, and is a prerequisite for modelling delirium.
 
 **One manual step outstanding:** GitHub Pages may still need enabling —
 Settings → Pages → source `main` / root. `.nojekyll` is committed, but Pages itself
