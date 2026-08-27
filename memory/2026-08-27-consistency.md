@@ -150,9 +150,17 @@ tool, which knows more.
    the documented escape hatch, a "must be a land" clause returned a confident
    **exact 0%** three feet from a panel reporting 24 lands — and the *same* card
    also passed "must NOT be a land" and counted as a two-drop. `matches()` now
-   falls back to the parser's own verdict when there is no type line. **This is
-   the one existing figure that moves in this session**, it moves only for a deck
-   using the tag, and it moves from wrong to right.
+   falls back to the parser's own verdict when there is no type line.
+
+   **This is the one existing figure that moves in this session.** It was
+   measured rather than assumed: `analyseCards` and `evalPayoff` were run at
+   `d9eadff` and at HEAD over a fixture holding resolved cards, four inline
+   `[land:BR]` cards and four unresolved ones, and the outputs diffed. Total,
+   land count, spell count, average mana value, the land recommendation, every
+   colour source, every requirement, the curve, every driver row, and both
+   shipped payoff presets are byte-identical. The single difference is a
+   `land:'yes'` dig filter finding **24 hits instead of 20** — the four tagged
+   lands the land count had been counting all along.
 2. **Unresolved cards inflated goals, under a banner saying the opposite.** An
    unresolved card has no type line and no mana value, so `matches()` reads it as
    not-a-creature, not-a-land, not-a-permanent, MV 0 — it passes every *negative*
