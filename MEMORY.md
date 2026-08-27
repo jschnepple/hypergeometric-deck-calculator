@@ -5,6 +5,7 @@ Read `CLAUDE.md` first for current state and conventions.
 
 | Date | File | Summary |
 |---|---|---|
+| 2026-08-27 | [card-resolution](memory/2026-08-27-card-resolution.md) | Three cards reported as unrecognised in one decklist; two of them had nothing to do with the assumed cause. **Scryfall already folds diacritics** — `Dain's Company` resolves fine — and the tool lost the card *after* a successful lookup, because `lookup` filed it under the canonical accented name and `parseList` asked for the typed one. Another seam, same family as session five's eight and this morning's three. `Giantcraft Helm` was real: it is `printed_name` on Through the Omenpaths #167, whose `name` is `Doc Ock's Tentacles`, and **138 of the first 175 cards in that set are renamed the same way**. Lookup is now three tiers — collection (exact, folds accents) → `!"name"` search (matches printed names, applied and reported) → fuzzy (a guess, offered with a button, never applied) — behind a dialog that distinguishes the four things that can happen instead of calling all of them "not recognised". `cardRecord` moved into PARSING on the way, putting the DB-record construction under test for the first time. Every Scryfall claim verified live against the API. 1071 → 1176 tests, 1287 with jsdom. |
 | 2026-08-27 | [consistency](memory/2026-08-27-consistency.md) | Deck goals, the London mulligan chain, and the Consistency tab. A goal is your own definition of a good opening hand — a conjunction of clauses over the seven you *look at* — and its probability is an exact multivariate hypergeometric over a **Venn-atom partition**, because partitioning per clause set both double-counts overlapping cards and stops one card satisfying two clauses at once. London then makes the chain closed-form, and the reason reads like a bug until you see it: you bottom cards *after* keeping, so evaluating the goal on the seven you look at is correct and *p* is identical at every mulligan. Cross-validated against the goldfish's own seeded dealer for six goals of different shapes. Found that the kickoff prompt's DoD had merged two opposite findings into one sentence — disjoint clause sets land *below* the naive product, overlapping ones *above* it — and asserted both. Three bugs found by writing the tests, one of them the second panel to be caught by the empty-shape broken-variant convention. Then an adversarial review of the finished green diff found **three more real bugs plus six smaller things**, every one of them in the seam between `matches()` — which knows only a type line — and the rest of the tool, which knows more: an inline `[land:XY]` land that was not a land to a filter, unresolved cards *inflating* goals under a banner saying they understated them, and `vennAtoms` refusing being read as "the deck is empty". 747 → 1071 tests, 1161 with jsdom. |
 | 2026-08-19 | [sideboard](memory/2026-08-19-sideboard.md) | Sideboards, named sideboard variants, and the Compare tab. A variant is a live **diff** against the maindeck, not a copy, so it follows the deck as you tune it; a stale swap marks the variant broken rather than half-applying. Found a live bug on the way — `parseList` skipped the `Sideboard` header and kept parsing, so every pasted export had its sideboard folded into the maindeck. Made `analyse()` pure to get there, which finally put the ANALYSIS section under test. The comparison separates exact figures from sampled ones, gives the sampled ones common random numbers and an explicit noise band, and refuses to invent a "best variant" score. 445 → 747 tests, plus a first-of-its-kind jsdom test that boots the real page and clicks through it. An adversarial review of the finished, all-green diff then found eight more bugs, every one of them living in the *seam* between two individually-correct functions. |
 | 2026-08-12 | [goldfish](memory/2026-08-12-goldfish.md) | The opening-hand simulator. Seeded per-hand shuffles, keepability scored on the play and on the draw, drill-in with card-by-card draws and live conditional odds. Defined the on-curve probability that the tool never actually had — `P(hold) × P(lands) × P(colours\|lands)`, the last computed exactly and divided back out to avoid double-counting the land requirement. Feeding `DERIVED`'s own source counts back through it returns 0.88–0.94 flat across the grid: closed form and Monte Carlo agreeing independently. Found two real scorecard bugs (one-land hands kept 79% of the time) and four test bugs. 221 → 445 tests. |
@@ -57,11 +58,21 @@ thing with a written plan behind it. Candidates, in rough order of value:
 - **Verify card oracle text against Scryfall before implementing any card's math.**
   Nine of the eleven bugs across both sessions came from trusting a plausible
   assumption about a card or about Scryfall's data shape.
-- **Scryfall's data lies by omission in three specific ways**, all now handled and
-  all worth remembering before adding a fourth: `produced_mana` lists conditional
+- **Scryfall's data lies by omission in four specific ways**, all now handled and
+  all worth remembering before adding a fifth: `produced_mana` lists conditional
   and restricted colours as if unconditional; fetchlands have no `produced_mana`
-  at all; and `type_line` on a double-faced card concatenates both faces, so any
-  regex against it matches the back face too.
+  at all; `type_line` on a double-faced card concatenates both faces, so any
+  regex against it matches the back face too; and `name` is not the only name a
+  card answers to — `printed_name` carries Arena renames and foreign printings,
+  and the collection endpoint does not match it even though search does. All four
+  were found by a real decklist rather than by reading the docs.
+- **Scryfall folds diacritics for you; the DB has to fold them too.** The
+  collection endpoint resolves "Dain's Company" perfectly. A card can therefore
+  be fetched successfully and then be permanently unreachable, because it was
+  filed under the accented name and looked up under the typed one. `foldKey` +
+  `dbLookup` close that; exact keys still win, so the fold only rescues a miss.
+- **A name a user typed and a name Scryfall returned are different strings**, and
+  anything that keys on one must be reachable by the other.
 - The `SCRYFALL` section can't be reached by `tests/extract.js`. Logic that needs
   a regression test belongs in `PARSING`.
 - **`render()` rebuilds every panel with `innerHTML` on every keystroke.** A CSS

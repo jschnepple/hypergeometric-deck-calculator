@@ -54,8 +54,8 @@ silently swallows everything you just added.
 ## Testing
 
 ```bash
-node tests/run-all.js      # 1071 tests, ~14s, zero dependencies
-npm install jsdom          # optional; adds 90 more from dom.test.js
+node tests/run-all.js      # 1176 tests, ~15s, zero dependencies
+npm install jsdom          # optional; adds 111 more from dom.test.js
 ```
 
 In a sandbox that cannot write to the checkout, jsdom goes somewhere else:
@@ -81,14 +81,21 @@ Run the suite after any edit to `index.html`.
 - **Check card text against Scryfall before implementing a card's math.** United
   Battlefront's "permanent" clause and the Verge oracle wording both materially
   changed the calculation.
-- **Scryfall's data lies by omission, in three known ways.** `produced_mana` lists
+- **Scryfall's data lies by omission, in four known ways.** `produced_mana` lists
   conditional and restricted colours as though they were unconditional; fetchlands
-  have no `produced_mana` at all; and `type_line` on a double-faced card
-  concatenates both faces, so any regex against it also matches the back. Assume a
-  fourth exists and check the raw JSON before trusting a field.
+  have no `produced_mana` at all; `type_line` on a double-faced card concatenates
+  both faces, so any regex against it also matches the back; and `name` is not the
+  only name a card answers to — `printed_name` carries the Arena rename and the
+  foreign printing, and the **collection endpoint does not match it** even though
+  search does. Assume a fifth exists and check the raw JSON before trusting a
+  field. Every one of these four was found by a real decklist, not by reading
+  the docs.
 - **Logic that needs a regression test belongs in `PARSING`.** `tests/extract.js`
   cannot reach the `SCRYFALL` section — it touches the network. Anything that has
-  regressed once should live where a test can see it.
+  regressed once should live where a test can see it. `cardRecord`, `cardKeys`,
+  `indexCard`, `foldKey`, `renameInList` and the resolution-dialog builders all
+  moved or were written there for exactly this reason; `SCRYFALL` is now only the
+  three fetches and the report they build.
 - **When a test fails, work out whether the test or the code is wrong.** Twice the
   test was wrong; fix the test rather than weakening the assertion.
 - Scryfall asks for 50–100ms between requests. Batches are spaced 120ms with a 429
@@ -110,6 +117,26 @@ Run the suite after any edit to `index.html`.
   `subtypes`, `verge`, `fetch`, `restriction`, `mdfcLand` **or `typeLine`** —
   precisely the data the seven session-two bugs were about. It is an escape hatch
   for cards Scryfall cannot resolve, not normal practice.
+- **A card name has to be FOLDED before it is a DB key.** `foldKey` strips
+  diacritics, curly apostrophes, dashes and ligatures. Nobody types "Dáin's
+  Company" with the accent — and Scryfall's collection endpoint resolves the
+  accent-less spelling perfectly, so the card came back and was then filed under
+  a key `parseList` would never ask for. `dbLookup` tries the exact key first and
+  the fold only rescues a miss, so a correctly spelled name can never be
+  redirected. `foldIndex()` is DERIVED from DB (memoised on identity, like
+  `parseDeckCached`) rather than stored, because DB is what travels through
+  localStorage and any parallel structure would need rebuilding on every load,
+  import and cache restore. **Folded collisions are refused, not guessed** — two
+  different cards wanting one folded key empty the slot.
+- **`printed_name` is a name the card answers to.** It is how Arena decklists
+  work: on Through the Omenpaths, 138 of the first 175 cards carry a printed name
+  different from their oracle name (#167 is `name: "Doc Ock's Tentacles"`,
+  `printed_name: "Giantcraft Helm"`). It is also what a non-English printing
+  carries. `cardKeys` indexes it, both faces, and both faces' printed names.
+- **The lookup has three tiers and they are not interchangeable.** Collection
+  endpoint (exact, folds accents) → `!"name"` search (matches printed names,
+  still exact, applied and reported) → `named?fuzzy=` (a GUESS: offered with a
+  button, never applied). Only the first two may touch the deck on their own.
 - **`matches()` is the tool's NARROWEST reader of a card.** It sees a type line
   and a mana value; `analyseCards` sees more. Every caller that assumed otherwise
   has been a bug. Two rules follow, both now enforced and tested:
@@ -416,7 +443,7 @@ chain in closed form, and plots strictness against the cards it costs.
 
 ## Current state — 2026-08-27 (session 6)
 
-**Done.** 1071 tests green (1161 with jsdom installed). Session 2 loaded the first
+**Done.** 1176 tests green (1287 with jsdom installed). Session 2 loaded the first
 real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
 with functionality frozen; session 4 added the Goldfish tab and produced the
 strongest cross-validation the mana math has had — the closed-form conditional
@@ -446,8 +473,16 @@ into ten atoms took 16ms in a scratch measurement, and that is per goal per
 keystroke without the memo. If that panel ever feels slow, check the memo key is
 still busting correctly before touching the enumeration.
 
-**Still never opened in a real browser by the agent** — but the gap is narrower
-than it was. `tests/dom.test.js` now boots the actual page in jsdom and drives the
+**The page itself has still never been rendered in a real browser by the agent**
+— the Chrome extension will not load `file://`, so that gap stands. What HAS now
+been done live, in a browser, is the Scryfall side: the three-tier lookup was run
+against `api.scryfall.com` with the real reported card names, and all three
+resolve (`Dain's Company` → `Dáin's Company` by fold, `Giantcraft Helm` →
+`Doc Ock's Tentacles` by printed name, a deliberate typo → a suggestion). The
+fixtures in `tests/resolve.test.js` are the real API payloads from that session,
+not payloads typed from memory.
+
+Otherwise the gap is narrower than it was. `tests/dom.test.js` now boots the actual page in jsdom and drives the
 whole sideboard flow AND the whole consistency flow with real clicks, so wiring,
 element ids and handler behaviour are covered. What remains unverified is anything
 jsdom does not do: layout, wrapping at narrow widths, `backdrop-filter`, whether

@@ -89,6 +89,8 @@ Exact figures and sampled ones are kept apart. Curve, sources, land count and pa
 
 Set codes, `x` notation and comments (`//`) are all handled.
 
+**Names are matched the way people actually type them.** Accents are optional — `Dain's Company` finds `Dáin's Company` — and so are curly apostrophes. Arena decklists work too: `Giantcraft Helm` resolves to `Doc Ock's Tentacles`, because Arena prints many Universes Beyond cards under different names and the tool reads the printed name as well as the oracle one. Anything it can only *guess* at is offered as a suggestion with a button rather than quietly put in your deck, and anything it can't resolve at all gets a dialog telling you what that costs — an unresolved card fills a slot in your library and satisfies nothing, so every figure on the page is understated until you fix it.
+
 Put a `Sideboard` line before your sideboard and it's kept out of the deck — which is what makes the Compare tab work, and stops a pasted 75-card export being analysed as a 75-card deck:
 
 ```
