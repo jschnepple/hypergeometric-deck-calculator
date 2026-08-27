@@ -295,6 +295,74 @@ function naivePerSet(sizes, ns, N, h) {
 }
 
 /* ============================================================
+   CARDS THE PARSER COULD NOT FULLY RESOLVE
+   ============================================================
+   Two failure modes with opposite signs, both found by reading the diff rather
+   than by a red test, and both in the seam between `matches()` — which knows
+   only the type line — and the rest of the tool, which knows more. */
+group('an inline [land:XY] tag is still a land');
+
+{
+  /* The documented escape hatch produces a card with NO type line: the parser
+     records `land:true` and nothing else. `analyseCards` counts it in the land
+     count and `cardTypes` calls it a Land, so a "must be a land" filter that
+     reads only the type line makes three parts of the tool disagree about the
+     same card — and the same card would pass "must NOT be a land" as well. */
+  const inline = { name: 'Fakeland', qty: 24, land: true, produces: ['R'], tapped: false,
+                   cmc: 0, pips: { W:0,U:0,B:0,R:0,G:0 } };
+  const deck = [inline, card('Bear', 36, 'Creature — Bear', 2)];
+
+  chk('matches() calls it a land', matches(inline, { land: 'yes' }));
+  chk('and does not call it a nonland', !matches(inline, { land: 'no' }));
+  chk('a land is a permanent', matches(inline, { permanent: 'yes' }));
+  chk('and is not a creature', !matches(inline, { creature: 'yes' }));
+  eq('cardTypes agrees', cardTypes(inline), ['Land']);
+
+  const r = pGoal(goal('g', filt(2, { land: 'yes' })), deck, 7);
+  eq('so a land clause finds all 24', r.p, hyperAtLeast(2, 24, 7, 60), TOL);
+  chk('rather than answering a confident zero', r.p > 0.8);
+
+  /* A resolved card is untouched: it always has a type line, so the fallback
+     never fires for one and no existing figure moves. */
+  const real = card('Mountain', 24, 'Basic Land — Mountain', 0, true);
+  chk('a resolved land is unaffected', matches(real, { land: 'yes' }));
+  const spell = card('Bolt', 4, 'Instant', 1);
+  chk('a resolved spell is unaffected', !matches(spell, { land: 'yes' }));
+}
+
+group('an unresolved card fills a slot and satisfies nothing');
+
+{
+  /* The dangerous direction. An unresolved card has no type line and no mana
+     value, so `matches` reads it as not-a-creature, not-a-land, not-a-permanent
+     and MV 0 — it passes every NEGATIVE filter and every "MV <= n" test. Left in
+     the sets it inflates the answer, under an on-screen flag that says the
+     figures are understated. It is excluded from sets and kept in the total,
+     which is what evalPayoff already does. */
+  const unknown = { name: 'Mystery', qty: 24, unknown: true, land: false, produces: [],
+                    cmc: 0, pips: { W:0,U:0,B:0,R:0,G:0 } };
+  const deck = [card('Mountain', 24, 'Basic Land — Mountain', 0, true),
+                card('Bear', 12, 'Creature — Bear', 2), unknown];
+
+  const cheap = goal('g', filt(1, { land: 'no', mvOp: 'lte', mvVal: 2 }));
+  const r = pGoal(cheap, deck, 7);
+  eq('the unresolved 24 do not count as two-drops', r.p, hyperAtLeast(1, 12, 7, 60), TOL);
+  eq('but they are still in the library', r.total, 60);
+
+  const spec = goalSets(cheap, deck);
+  chk('and appear in no set', !spec[0].sets[0].cards.some(c => c.unknown));
+
+  const types3 = pGoal(goal('g', types(3)), deck, 7);
+  eq('they contribute no card type either', types3.p, 0, TOL);
+
+  /* The sampled path has to agree, or the cross-validation would be comparing
+     two different decks. */
+  const mc = pGoalSampled(goalSets(cheap, deck), deck, 7, 31337, 40000);
+  chk('the sampled path excludes them too',
+      Math.abs(r.p - mc.p) <= 3 * mc.se, `exact ${r.p} sampled ${mc.p}`);
+}
+
+/* ============================================================
    THE COST GUARD
    ============================================================ */
 group('the cost guard falls back to sampling and says so');
@@ -314,6 +382,32 @@ group('the cost guard falls back to sampling and says so');
       `exact ${exact.p} sampled ${sampled.p} se ${sampled.se}`);
   chk('the two are never confused — method is the label',
       exact.method !== sampled.method);
+}
+
+{
+  /* vennAtoms refusing is not the same statement as "the deck is empty", and
+     collapsing the two reported a confident exact 0% over "0 atoms of a 0-card
+     list" for a sixty-card deck. A types clause contributes one set per card
+     type, so five of them on an ordinary list blows the 30-set mask — a handful
+     of clicks, not a contrived fixture. */
+  const g = goal('g', types(2), types(3), types(4), types(5), types(6));
+  const spec = goalSets(g, TYPES);
+  const flat = flatSets(spec);
+  chk('five types clauses is over the mask', flat.flat.length > 30, String(flat.flat.length));
+  eq('so vennAtoms refuses', vennAtoms(flat.flat, TYPES), null);
+
+  const r = pGoal(g, TYPES, 7, { trials: 20000, seed: 5 });
+  eq('and pGoal samples rather than answering zero', r.method, 'sampled');
+  eq('the deck is still sixty', r.total, total(TYPES));
+  /* The conjunction is just its strictest clause, which is checkable exactly. */
+  const strictest = pGoal(goal('g', types(6)), TYPES, 7).p;
+  chk('and the sampled figure lands on the strictest clause',
+      Math.abs(r.p - strictest) <= 3 * r.se + 1e-9,
+      `sampled ${r.p} exact ${strictest} se ${r.se}`);
+
+  const empty0 = pGoal(goal('g', types(2)), [], 7);
+  eq('an actually empty deck is still an exact zero', empty0.method, 'exact');
+  eq('and says zero', empty0.p, 0);
 }
 
 /* ============================================================

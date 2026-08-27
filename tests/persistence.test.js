@@ -34,7 +34,7 @@ globalThis.render = () => {};
 
 load(['persistence'], { PAYOFFS: [], PID: 0, DB: {}, SNAPSHOT: null,
                         VARIANTS: [], VID: 0, ACTIVE_V: null,
-                        GOALS: [], GOID: 0 });
+                        GOALS: [], GOID: 0, GOAL_MAX_CLAUSES: 8 });
 
 group('a build captures the whole analysis context');
 fields.list = '4 Lightning Bolt\n20 Mountain';

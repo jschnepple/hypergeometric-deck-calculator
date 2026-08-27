@@ -32,6 +32,33 @@ chk('GB hits any creature',             matches(card('Creature — Goblin', 5), 
 chk('GB hits an artifact creature',     matches(card('Artifact Creature — Golem', 2), GB));
 chk('GB MISSES an artifact',            !matches(card('Artifact', 4), GB));
 
+/* A card with NO type line falls back to the parser's own land verdict.
+
+   The inline `[land:RG]` escape hatch produces exactly that: the parser records
+   `land:true` and nothing else, because the tag discards everything Scryfall
+   would have known. Reading only the type line made three parts of the tool
+   disagree about the same card — `analyseCards` counted it in the land count,
+   `cardTypes` called it a Land, and this said it was neither a land nor a
+   permanent, so it passed "must NOT be a land" as well.
+
+   This is the one place in session six where an existing figure moves, and it
+   moves only for a deck using the tag, and only from wrong to right. */
+const tagged = { qty: 4, land: true, cmc: 0 };
+chk('an inline land tag is a land',        matches(tagged, { land: 'yes' }));
+chk('and is not a nonland',               !matches(tagged, { land: 'no' }));
+chk('and is a permanent',                  matches(tagged, { permanent: 'yes' }));
+chk('and is not a creature',              !matches(tagged, { creature: 'yes' }));
+chk('so United Battlefront still misses it', !matches(tagged, UB));
+chk('and Getaway Barrel still misses it',    !matches(tagged, GB));
+
+/* An unresolved card is land:false and has no type line, so it reads as
+   nonland, noncreature, nonpermanent, mana value 0 — it passes every negative
+   filter there is. That is why evalPayoff skips `unknown` before ever calling
+   this, and why goalSets does the same. */
+const unresolved = { qty: 4, unknown: true, land: false, cmc: 0 };
+chk('an unresolved card passes a nonland filter — which is why callers skip it',
+    matches(unresolved, { land: 'no', mvOp: 'lte', mvVal: 3 }));
+
 group('distributions are well formed');
 for (const [K, D, N] of [[8, 7, 59], [12, 7, 59], [16, 13, 59], [4, 7, 60], [1, 13, 60]]) {
   let sum = 0;

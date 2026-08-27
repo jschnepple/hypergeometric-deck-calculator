@@ -1519,7 +1519,21 @@ function hyperExact(j,K,n,N){
 }
 function matches(card, c){
   const tl=card.typeLine||'';
-  const isC=/\bCreature\b/i.test(tl), isL=/\bLand\b/i.test(tl), isP=PERM.test(tl);
+  /* No type line at all? Fall back to the parser's own land verdict.
+
+     An inline [land:RG] tag arrives with no type line, and `land` is the single
+     piece of information the tag does carry. Without this fallback three parts
+     of the tool disagree about the same card: analyseCards counts it in the land
+     count, cardTypes calls it a Land, and this said it was neither a land nor a
+     permanent — so a "must be a land" filter returned a confident zero next to a
+     panel reporting 24 lands, and the same card also passed "must not be a land".
+     A land is a permanent, so both tests move together.
+
+     Nothing changes for a Scryfall-resolved card, which always has a type line.
+     An unresolved card has land:false and is excluded upstream anyway. */
+  const isC=/\bCreature\b/i.test(tl);
+  const isL=tl ? /\bLand\b/i.test(tl) : !!card.land;
+  const isP=tl ? PERM.test(tl)        : !!card.land;
   if(c.creature==='yes'&&!isC) return false;
   if(c.creature==='no'&&isC) return false;
   if(c.land==='yes'&&!isL) return false;
@@ -1742,7 +1756,14 @@ function selMatches(sel, card){
    types" is a statement about several sets at once and the partition below has
    to be able to see all of them at the same time. */
 function goalSets(goal, cards){
-  const list = (cards||[]).filter(c=>c && Math.max(0,Math.floor(+c.qty||0))>0);
+  /* Unresolved cards are excluded from every SET but stay in the deck TOTAL,
+     which is what evalPayoff already does and for the same reason: an
+     unresolved card has no type line, so `matches` reads it as not-a-creature,
+     not-a-land, not-a-permanent and mana value zero — it would pass every
+     negative filter and every "MV <= n" test and inflate the answer. It fills a
+     slot in your library and satisfies nothing, so that is how it is counted,
+     and the panel says the figures are understated until you resolve them. */
+  const list = (cards||[]).filter(c=>c && !c.unknown && Math.max(0,Math.floor(+c.qty||0))>0);
   const out = [];
   const clauses = (goal && Array.isArray(goal.clauses)) ? goal.clauses : [];
   clauses.forEach((cl, ci)=>{
@@ -1979,17 +2000,27 @@ function pGoal(goal, cards, handSize, opts){
 
   const flat = flatSets(spec);
   const part = vennAtoms(flat.flat, cards);
-  if(part && part.total>0){
+
+  /* An empty deck is a real answer. `part === null` is NOT — it is vennAtoms
+     refusing, because more than 30 sets would overflow the mask. Collapsing the
+     two would report a confident exact 0% over "0 atoms of a 0-card list" for a
+     sixty-card deck, which is the confident-wrong-number this section exists to
+     avoid. Five delirium clauses on an ordinary deck reaches it. */
+  if(part && part.total===0)
+    return {p:0, method:'exact', atoms:0, sets:flat.flat.length, total:0, spec};
+
+  if(part){
     try{
       const p = goalEnumerate(spec, flat, part, h, opts&&opts.budget);
       return {p, method:'exact', atoms:part.atoms.length, sets:flat.flat.length, total:part.total, spec};
     }catch(e){ if(e!==GOAL_OVER) throw e; }
   }
-  if(!part || part.total===0)
-    return {p:0, method:'exact', atoms:0, sets:flat.flat.length, total:0, spec};
 
   const s = pGoalSampled(spec, cards, h, (opts&&opts.seed)||1, (opts&&opts.trials)||20000);
-  return Object.assign(s, {atoms:part.atoms.length, sets:flat.flat.length, total:part.total, spec});
+  return Object.assign(s, {atoms:part?part.atoms.length:null, sets:flat.flat.length,
+                           total:part ? part.total
+                                      : (cards||[]).reduce((t,c)=>t+Math.max(0,Math.floor(+c.qty||0)),0),
+                           spec});
 }
 
 /* pGoal off the typing path.
@@ -2143,6 +2174,9 @@ function pTypesSeenBy(cards, turn, onPlay, want){
    broken template literal does not throw, it renders the word `undefined`
    inside a percentage and nothing notices. */
 let GOALS=[], GOID=0;
+/* One number, read by the editor and by sanitizeGoals. Two copies of a cap is
+   two caps, and the pair drift the moment one of them is edited. */
+const GOAL_MAX_CLAUSES = 8;
 
 function newGoal(name, clauses){
   return {id:++GOID, name:String(name||'').trim()||`Goal ${GOID}`,
@@ -2198,12 +2232,23 @@ function goalIssues(goal, cards){
         out.push({level:'warn', msg:`Clause ${n} wants ${cl.n} distinct card types and this list only holds ${avail}.`});
       return;
     }
+    let named = null;
     if(cl.sel && cl.sel.mode==='named'){
-      const names=(cl.sel.names||[]).filter(x=>String(x||'').trim());
-      if(!names.length){ out.push({level:'blocked', msg:`Clause ${n} has no card chosen yet.`}); return; }
+      named=(cl.sel.names||[]).filter(x=>String(x||'').trim());
+      if(!named.length){ out.push({level:'blocked', msg:`Clause ${n} has no card chosen yet.`}); return; }
     }
-    if(spec[i] && spec[i].sets[0].size===0)
-      out.push({level:'warn', msg:`Clause ${n} matches nothing in this list, so the goal cannot be met.`});
+    /* A clause asking for zero is met by every hand, so an empty set is not a
+       problem — saying "the goal cannot be met" beside a figure that is not zero
+       would have the flag and the number contradicting each other. */
+    if(cl.n>0 && spec[i] && spec[i].sets[0].size===0){
+      /* Named separately, because a clause naming a card the list no longer
+         holds is a stale goal rather than a badly written one, and the fix is a
+         different action. It happens whenever the deck is edited underneath a
+         goal, or a variant boards the card out. */
+      out.push(named
+        ? {level:'warn', msg:`Clause ${n} names ${named.join(' or ')}, which is not in this list any more — so the goal cannot be met.`}
+        : {level:'warn', msg:`Clause ${n} matches nothing in this list, so the goal cannot be met.`});
+    }
   });
   return out;
 }
@@ -2311,18 +2356,25 @@ function goalClauseHTML(ev){
    really an upper bound is exactly the confident-optimistic figure the plan
    refused to ship. Seeing a type is not putting it in your graveyard. */
 function goalTypesHTML(ev){
-  const t = ((ev.goal && ev.goal.clauses) || []).find(c=>c && c.kind==='types');
-  if(!t || !ev.cards) return '';
-  const want = Math.max(1, Math.floor(+t.n||1));
-  const bands = [1,2,3,4].map(turn=>{
-    const r = pTypesSeenBy(ev.cards, turn, ev.onPlay, want);
-    return `<span><b>${glPct(r.p)}</b>by turn ${turn} · ${r.seen} cards seen</span>`;
+  /* Every types clause, not just the first — a goal can hold more than one, and
+     silently answering only one of them is the kind of quiet omission this
+     panel has no way to signal. */
+  const ts = ((ev.goal && ev.goal.clauses) || []).filter(c=>c && c.kind==='types' && +c.n>0);
+  if(!ts.length || !ev.cards) return '';
+  const blocks = ts.map(t=>{
+    const want = Math.max(1, Math.floor(+t.n||1));
+    const bands = [1,2,3,4].map(turn=>{
+      const r = pTypesSeenBy(ev.cards, turn, ev.onPlay, want);
+      return `<span><b>${glPct(r.p)}</b>by turn ${turn} · ${r.seen} cards seen</span>`;
+    }).join('');
+    return `<div><b>${want} distinct card types among the cards you have SEEN</b>
+      <div class="gfbands">${bands}</div></div>`;
   }).join('');
   return `<div class="note" style="margin-top:var(--s4)">
-    <b>${want} distinct card types among the cards you have SEEN</b> — a <b>ceiling</b> on delirium, not delirium.
-    Seeing a type is not putting it in your graveyard; turning delirium on needs a play policy, self-mill and fetch
-    sequencing, none of which is modelled here. The opening-hand figure above is exact; these are bounds.
-    <div class="gfbands">${bands}</div></div>`;
+    ${blocks}
+    <div style="margin-top:var(--s3)">These are a <b>ceiling</b> on delirium, not delirium. Seeing a type is not
+    putting it in your graveyard; turning delirium on needs a play policy, self-mill and fetch sequencing, none of
+    which is modelled here. The opening-hand figure above is exact; these are bounds.</div></div>`;
 }
 
 function goalCardHTML(ev){
@@ -2496,6 +2548,20 @@ function goalEditorHTML(A, goals){
 
   const cardOpts = [['','— pick a card —']].concat(
     (A.cards||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>[c.name, `${c.qty} ${c.name}`]));
+  const inDeck = new Set((A.cards||[]).map(c=>cardKey(c.name)));
+
+  /* A goal can outlive the card it names — you edit the decklist, or a variant
+     boards the card out. Keep the stale name in the dropdown, flagged, rather
+     than letting the select fall back to "— pick a card —": otherwise the
+     builder says no card is chosen while the panel beside it says "at least 1 x
+     Leyline Axe" and prints an exact 0%. Two halves of the page disagreeing
+     about whether the goal is finished is worse than either answer. */
+  const optsFor = sel=>{
+    const cur=((sel&&sel.names)||[])[0]||'';
+    return (cur && !inDeck.has(cardKey(cur)))
+      ? cardOpts.concat([[cur, `${cur} — not in this list`]])
+      : cardOpts;
+  };
 
   const body = (goals||[]).map((g,gi)=>{
     const rows = (g.clauses||[]).map((cl,ci)=>{
@@ -2505,7 +2571,7 @@ function goalEditorHTML(A, goals){
       const detail = isTypes ? '' : `<div class="gsel" data-gid="${g.id}" data-ci="${ci}">
           ${sel(named?'named':'filter', [['named','a specific card'],['filter','a filter']], 'mode')}
           ${named
-            ? sel((cl.sel.names||[])[0]||'', cardOpts, 'name')
+            ? sel((cl.sel.names||[])[0]||'', optsFor(cl.sel), 'name')
             : `${sel(f.creature||'any', YNA, 'creature')}<span class="mini">creature</span>
                ${sel(f.land||'any', YNA, 'land')}<span class="mini">land</span>
                ${sel(f.permanent||'any', YNA, 'permanent')}<span class="mini">permanent</span>
@@ -3691,6 +3757,17 @@ function runBars(){
 function tweenNum(key, to, fmt){
   const cur = NUMSTATE[key];
   if(cur===undefined || Math.abs(to-cur)<1e-4 || REDUCED){
+    /* With reduced motion there is no tween to paint the new value, and the
+       markup was written from the PREVIOUS NUMSTATE — so without this write the
+       figure sits one render behind for as long as nobody types again, and it
+       disagrees with the sentence underneath it computed from the live number.
+       Only reached when the value actually moved; the other two branches are
+       either a first render (markup already has it) or a change too small to
+       show. */
+    if(REDUCED && cur!==undefined && Math.abs(to-cur)>=1e-4 && fmt){
+      const el=document.querySelector(`[data-nk="${key}"]`);
+      if(el) el.textContent=fmt(to);
+    }
     NUMSTATE[key]=to; return;
   }
   cancelAnimationFrame(NUMTIMER[key]);
@@ -3878,10 +3955,16 @@ function renderConsistency(A){
   if(TAB!=='consistency') return;
   const a = A || currentA();
   const mulls = Math.max(0, Math.min(6, +$('glMulls').value||0));
-  /* Fixed at seven, and not a control. Under London every look is a fresh
-     seven whatever you are on the play or the draw — the extra card on the draw
-     arrives in your draw step, after the keep decision this tab is about. */
-  const hand = 7;
+  /* Seven, and not a control. Under London every look is a fresh seven whether
+     you are on the play or the draw — the extra card on the draw arrives in
+     your draw step, after the keep decision this tab is about.
+
+     Clamped to the list only so a half-typed four-card deck does not print a
+     probability computed over four cards under the words "a fresh 7". Computed
+     ONCE and handed to both the goal cards and the frontier: two callers each
+     clamping for themselves is how the card and the chart come to quote
+     different expected hand sizes for the same policy. */
+  const hand = Math.max(0, Math.min(7, a.total));
   const evals = goalEvals(GOALS, a.cards, hand, mulls, {onPlay:a.onPlay});
   const ready = evals.filter(e=>e.ready).map(e=>e.goal);
   const series = ready.length ? goalSeries(ready, a.cards, hand, mulls) : [];
@@ -4467,7 +4550,8 @@ function sanitizeGoals(raw){
     return {
       id,
       name: String(g.name||'').trim().slice(0,60) || `Goal ${id}`,
-      clauses: (Array.isArray(g.clauses)?g.clauses:[]).map(sanitizeClause).filter(Boolean).slice(0,8)
+      clauses: (Array.isArray(g.clauses)?g.clauses:[])
+        .map(sanitizeClause).filter(Boolean).slice(0, GOAL_MAX_CLAUSES)
     };
   });
 }
@@ -4755,6 +4839,14 @@ function goalClick(e){
 
   if(b.dataset.gadd!=null){
     const g=getGoal(+b.dataset.gadd); if(!g) return;
+    /* The same cap sanitizeGoals applies on load. Without it a ninth clause is
+       accepted, answered, and then silently dropped by the next save — and a
+       conjunction losing a clause gets MORE likely, so the figure moves up
+       after a reload with nothing to explain it. */
+    if(g.clauses.length>=GOAL_MAX_CLAUSES){
+      alert(`A goal holds at most ${GOAL_MAX_CLAUSES} clauses. Make a second goal instead — the frontier compares them side by side.`);
+      return;
+    }
     g.clauses.push({kind:'cards', n:1, sel:landFilter()});
     render(); markDirty(); return;
   }
@@ -4798,7 +4890,12 @@ function goalChange(e){
   }
   else if(cl.sel && cl.sel.mode==='filter'){
     cl.sel.f = cl.sel.f || {};
-    cl.sel.f[attr] = attr==='mvVal' ? Math.max(0,Math.floor(+e.target.value||0)) : e.target.value;
+    /* Clamped to the SAME range sanitizeClause uses. A number input's `max` is
+       not enforced for a typed value, so without this you can answer for MV<=40
+       on screen, save 16, and reload to a different number. */
+    cl.sel.f[attr] = attr==='mvVal'
+      ? Math.max(0, Math.min(16, Math.floor(+e.target.value||0)))
+      : e.target.value;
   }
   render(); markDirty();
 }

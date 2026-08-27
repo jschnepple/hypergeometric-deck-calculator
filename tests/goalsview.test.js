@@ -113,6 +113,32 @@ group('an unfinished goal is refused, not answered');
   chk('asking for more types than the list holds warns',
       iss.some(i => i.level === 'warn' && /4/.test(i.msg)), JSON.stringify(iss));
 }
+{
+  /* A clause asking for zero is met by every hand, so an empty set is not a
+     finding. "The goal cannot be met" printed beside a figure that is not zero
+     would have the flag and the number contradicting each other. */
+  const zero = { id: 10, name: 'g', clauses: [{ kind: 'cards', n: 0, sel: { mode: 'filter', f: { creature: 'yes', mvOp: 'eq', mvVal: 15 } } }] };
+  eq('a zero-count clause over an empty set raises nothing', goalIssues(zero, CARDS).length, 0);
+  eq('and it really is met by every hand', pGoal(zero, CARDS, 7).p, 1, 1e-12);
+}
+{
+  /* A goal outliving the card it names: the deck was edited, or a variant
+     boarded the card out. Named separately because the fix is a different
+     action from "this filter is too narrow". */
+  const stale = { id: 11, name: 'g', clauses: [{ kind: 'cards', n: 1, sel: { mode: 'named', names: ['Gone Card'] } }] };
+  const iss = goalIssues(stale, CARDS);
+  chk('a named card missing from the list is called out by name',
+      iss.length === 1 && iss[0].level === 'warn' && /Gone Card/.test(iss[0].msg) &&
+      /not in this list any more/.test(iss[0].msg), JSON.stringify(iss));
+
+  /* And the editor must not fall back to "— pick a card —" for it, or the two
+     halves of the page disagree about whether the goal is finished. */
+  const html = goalEditorHTML(A, [stale]);
+  chk('the editor keeps the stale name, flagged', html.includes('Gone Card — not in this list'));
+  chk('and keeps it selected', /value="Gone Card" selected/.test(html));
+  chk('so the builder does not claim nothing is chosen',
+      !/value="" selected/.test(html));
+}
 
 /* ============================================================
    THE PANEL
@@ -227,6 +253,19 @@ group('a types goal gets a bound, and it is labelled as one');
 {
   eq('a goal with no types clause gets no block', goalTypesHTML(goalEval(READY, CARDS, 7, 2)), '');
   eq('a blocked goal gets no block', goalTypesHTML(goalEval(BLOCKED, CARDS, 7, 2)), '');
+  const zeroTypes = { id: 12, name: 'g', clauses: [{ kind: 'types', n: 0 }] };
+  eq('a zero-count types clause gets no block', goalTypesHTML(goalEval(zeroTypes, CARDS, 7, 2)), '');
+}
+{
+  /* Two types clauses get two blocks. Answering only the first would be a
+     silent omission with nothing on screen to signal it. */
+  const twoTypes = { id: 13, name: 'g', clauses: [{ kind: 'types', n: 2 }, { kind: 'types', n: 3 }] };
+  const html = goalTypesHTML(goalEval(twoTypes, CARDS, 7, 2));
+  sweep('two types clauses leak nothing', html);
+  eq('each gets its own block', (html.match(/class="gfbands"/g) || []).length, 2);
+  chk('and each is labelled with its own count',
+      /2 distinct card types/.test(html) && /3 distinct card types/.test(html));
+  eq('with one ceiling caveat, not two', (html.match(/ceiling/g) || []).length, 1);
 }
 {
   const html = build([DELIRIUM]);

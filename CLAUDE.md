@@ -54,7 +54,7 @@ silently swallows everything you just added.
 ## Testing
 
 ```bash
-node tests/run-all.js      # 1016 tests, ~13s, zero dependencies
+node tests/run-all.js      # 1071 tests, ~14s, zero dependencies
 npm install jsdom          # optional; adds 90 more from dom.test.js
 ```
 
@@ -107,9 +107,20 @@ Run the suite after any edit to `index.html`.
   `tests/goldfishview.test.js` regexes every rendered hand for exactly that.
 - **Inline `[land:XY]` overrides Scryfall entirely.** `parseList` checks the tag
   before the DB, and the tagged branch hardcodes `tapped:false` and carries no
-  `subtypes`, `verge`, `fetch`, `restriction` or `mdfcLand` — precisely the data
-  the seven session-two bugs were about. It is an escape hatch for cards Scryfall
-  cannot resolve, not normal practice.
+  `subtypes`, `verge`, `fetch`, `restriction`, `mdfcLand` **or `typeLine`** —
+  precisely the data the seven session-two bugs were about. It is an escape hatch
+  for cards Scryfall cannot resolve, not normal practice.
+- **`matches()` is the tool's NARROWEST reader of a card.** It sees a type line
+  and a mana value; `analyseCards` sees more. Every caller that assumed otherwise
+  has been a bug. Two rules follow, both now enforced and tested:
+  - It falls back to `card.land` when there is **no type line**, so an inline
+    `[land:XY]` tag is a land (and a permanent) to the filter as well as to the
+    land count. Without it, three parts of the tool disagreed about one card and
+    the same card passed both "must be a land" and "must not be a land".
+  - **Callers must skip `unknown` cards themselves.** An unresolved card has no
+    type line and no mana value, so it reads as noncreature, nonland,
+    nonpermanent, MV 0 and passes every negative filter there is. `evalPayoff`
+    and `goalSets` both drop them from the sets and keep them in the deck total.
 
 ## Known limitations (documented in the Method tab)
 
@@ -348,6 +359,10 @@ chain in closed form, and plots strictness against the cards it costs.
   budget the figure is sampled and says so, reusing the Compare tab's
   exact-vs-sampled distinction. `opts.budget` exists so a test can force the
   fallback deterministically rather than hunting a pathological deck.
+- **`vennAtoms` returning null is a REFUSAL, not an empty deck.** `pGoal` keeps
+  the two branches apart: `total===0` is an exact zero, `null` falls back to
+  sampling. Collapsing them reported a confident exact 0% "over 0 atoms of the
+  0-card list" for a sixty-card deck, which five delirium clauses reach.
 - **London is what makes the chain closed-form, and it reads like a bug.** You
   look at a fresh seven every time and bottom AFTER keeping, so `p` is identical
   at every mulligan and evaluating the goal on the seven you look at is correct.
@@ -365,7 +380,14 @@ chain in closed form, and plots strictness against the cards it costs.
   `blocked` (a named clause with no card chosen — do not evaluate) from `warn`
   (complete but impossible in this list — a real 0%, with an explanation). A
   confident 0% for a goal the user has not finished writing is the same failure
-  as analysing a half-applied variant swap.
+  as analysing a half-applied variant swap. A goal naming a card the deck no
+  longer holds keeps that name in the dropdown, flagged, rather than falling back
+  to the placeholder: the builder saying "no card chosen" while the panel prints
+  "at least 1 × Leyline Axe — 0.0%" is the two halves of the page disagreeing.
+- **Every live handler clamps to the SAME range `sanitize*` does.** `mvVal` to
+  0–16, clauses to `GOAL_MAX_CLAUSES`, `glMulls` to 0–6. A number input's `max`
+  is not enforced for a typed value, so a looser handler means the figure on
+  screen and the figure after a reload are different, with nothing to explain it.
 - **`consistencyHTML` checks `A.broken` BEFORE `A.total===0`.** A broken variant
   carries the analysis shape empty, so the ordinary empty state would tell you
   to paste a decklist you already pasted. Found by the view test, not by eye.
@@ -394,7 +416,7 @@ chain in closed form, and plots strictness against the cards it costs.
 
 ## Current state — 2026-08-27 (session 6)
 
-**Done.** 1016 tests green (1106 with jsdom installed). Session 2 loaded the first
+**Done.** 1071 tests green (1161 with jsdom installed). Session 2 loaded the first
 real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
 with functionality frozen; session 4 added the Goldfish tab and produced the
 strongest cross-validation the mana math has had — the closed-form conditional

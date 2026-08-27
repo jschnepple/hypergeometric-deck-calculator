@@ -1,8 +1,8 @@
 # Session 6 — deck goals, the London chain, and the Consistency tab
 
 Planned in `memory/plan-consistency.md`, built in one session against the kickoff
-prompt in `memory/next-session-prompt-consistency.md`. 1016 tests green without
-jsdom, 1106 with it.
+prompt in `memory/next-session-prompt-consistency.md`. 1071 tests green without
+jsdom, 1161 with it.
 
 ## What shipped
 
@@ -19,8 +19,9 @@ you dig against what digging costs you in cards.
   tab-hidden early return
 - UI: a Consistency tab between Goldfish and Compare, a goal builder in the left
   column under the Sideboard card, schema-3 persistence with migration
-- `tests/goals.test.js` (143), `tests/goalsview.test.js` (91), goal coverage in
-  `persistence.test.js`, and a consistency flow in `dom.test.js`
+- `tests/goals.test.js` (164), `tests/goalsview.test.js` (118), goal coverage in
+  `persistence.test.js`, a consistency flow in `dom.test.js`, and two new
+  `matches()` groups in `payoff.test.js`
 
 ## The load-bearing idea
 
@@ -131,6 +132,57 @@ compare-signature bug did.
    events go nowhere — the assertion passed for the wrong reason until it was
    re-queried. Not a product bug, but the same class as a test that quietly
    asserts nothing.
+
+## The review round, again the most valuable part
+
+Session five's lesson held: the feature was green — 1016 tests, a jsdom run that
+clicked the new tab from empty through a two-goal frontier — and an adversarial
+read of the whole diff found **three more real bugs plus six smaller things**,
+none of which any test was positioned to catch. Every one of the three lived in
+the seam between `matches()`, which knows only a type line, and the rest of the
+tool, which knows more.
+
+1. **`matches()` and `cardTypes()` disagreed about what a land is.** An inline
+   `[land:RG]` tag produces a card with **no type line** — the tag discards
+   everything Scryfall would have known, and `land:true` is all that survives.
+   `analyseCards` counted it in the land count, `cardTypes` called it a Land, and
+   `matches()` said it was neither a land nor a permanent. So on any deck using
+   the documented escape hatch, a "must be a land" clause returned a confident
+   **exact 0%** three feet from a panel reporting 24 lands — and the *same* card
+   also passed "must NOT be a land" and counted as a two-drop. `matches()` now
+   falls back to the parser's own verdict when there is no type line. **This is
+   the one existing figure that moves in this session**, it moves only for a deck
+   using the tag, and it moves from wrong to right.
+2. **Unresolved cards inflated goals, under a banner saying the opposite.** An
+   unresolved card has no type line and no mana value, so `matches()` reads it as
+   not-a-creature, not-a-land, not-a-permanent, MV 0 — it passes every *negative*
+   filter and every `MV ≤ n` test. On a 60-card list with 24 unresolved cards the
+   "two lands and a two-drop" preset read **85.6%** against a true **67.6%**,
+   while the panel's own flag said the figures were *understated*. `evalPayoff`
+   had always skipped `unknown`; `goalSets` had not. It does now, and they stay
+   in the deck total, which makes the flag true.
+3. **`vennAtoms` refusing was read as "the deck is empty".** `null` (more than 30
+   sets, the mask would wrap) and `total === 0` shared a branch, so instead of
+   falling back to sampling — which the function's own comment promised — `pGoal`
+   returned an exact 0% "over 0 disjoint atoms of the 0-card list" for a
+   sixty-card deck. A types clause contributes one set per card type, so five of
+   them reaches it in a handful of clicks. The branches are separate now.
+
+The smaller six, all fixed: three clamp mismatches where the live handler and
+`sanitize*` bounded the same quantity differently (`mvVal`, clause count,
+`glMulls`) so what you saved was not what you had been looking at; a goal naming
+a card the deck no longer holds showing as unfinished in the builder and as a
+confident 0% in the panel; `goalTypesHTML` answering only the first of several
+types clauses; a `n = 0` clause flagged "cannot be met" beside a figure of 100%;
+and `tweenNum` leaving the headline one render behind under
+`prefers-reduced-motion` — pre-existing, shared with the payoff panel, and now
+fixed for both.
+
+The pattern to remember: **`matches()` is the tool's narrowest reader of a card.**
+It sees a type line and a mana value and nothing else, and every one of these
+bugs was a caller assuming it knew as much as `analyseCards` does. The next
+feature that reuses it should check what it does with a card that has no type
+line before, not after.
 
 ## Left undone
 

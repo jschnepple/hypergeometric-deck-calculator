@@ -5,7 +5,7 @@ Read `CLAUDE.md` first for current state and conventions.
 
 | Date | File | Summary |
 |---|---|---|
-| 2026-08-27 | [consistency](memory/2026-08-27-consistency.md) | Deck goals, the London mulligan chain, and the Consistency tab. A goal is your own definition of a good opening hand — a conjunction of clauses over the seven you *look at* — and its probability is an exact multivariate hypergeometric over a **Venn-atom partition**, because partitioning per clause set both double-counts overlapping cards and stops one card satisfying two clauses at once. London then makes the chain closed-form, and the reason reads like a bug until you see it: you bottom cards *after* keeping, so evaluating the goal on the seven you look at is correct and *p* is identical at every mulligan. Cross-validated against the goldfish's own seeded dealer for six goals of different shapes. Found that the kickoff prompt's DoD had merged two opposite findings into one sentence — disjoint clause sets land *below* the naive product, overlapping ones *above* it — and asserted both. Three bugs found by writing the tests, one of them the second panel to be caught by the empty-shape broken-variant convention. 747 → 1016 tests, 1106 with jsdom. |
+| 2026-08-27 | [consistency](memory/2026-08-27-consistency.md) | Deck goals, the London mulligan chain, and the Consistency tab. A goal is your own definition of a good opening hand — a conjunction of clauses over the seven you *look at* — and its probability is an exact multivariate hypergeometric over a **Venn-atom partition**, because partitioning per clause set both double-counts overlapping cards and stops one card satisfying two clauses at once. London then makes the chain closed-form, and the reason reads like a bug until you see it: you bottom cards *after* keeping, so evaluating the goal on the seven you look at is correct and *p* is identical at every mulligan. Cross-validated against the goldfish's own seeded dealer for six goals of different shapes. Found that the kickoff prompt's DoD had merged two opposite findings into one sentence — disjoint clause sets land *below* the naive product, overlapping ones *above* it — and asserted both. Three bugs found by writing the tests, one of them the second panel to be caught by the empty-shape broken-variant convention. Then an adversarial review of the finished green diff found **three more real bugs plus six smaller things**, every one of them in the seam between `matches()` — which knows only a type line — and the rest of the tool, which knows more: an inline `[land:XY]` land that was not a land to a filter, unresolved cards *inflating* goals under a banner saying they understated them, and `vennAtoms` refusing being read as "the deck is empty". 747 → 1071 tests, 1161 with jsdom. |
 | 2026-08-19 | [sideboard](memory/2026-08-19-sideboard.md) | Sideboards, named sideboard variants, and the Compare tab. A variant is a live **diff** against the maindeck, not a copy, so it follows the deck as you tune it; a stale swap marks the variant broken rather than half-applying. Found a live bug on the way — `parseList` skipped the `Sideboard` header and kept parsing, so every pasted export had its sideboard folded into the maindeck. Made `analyse()` pure to get there, which finally put the ANALYSIS section under test. The comparison separates exact figures from sampled ones, gives the sampled ones common random numbers and an explicit noise band, and refuses to invent a "best variant" score. 445 → 747 tests, plus a first-of-its-kind jsdom test that boots the real page and clicks through it. An adversarial review of the finished, all-green diff then found eight more bugs, every one of them living in the *seam* between two individually-correct functions. |
 | 2026-08-12 | [goldfish](memory/2026-08-12-goldfish.md) | The opening-hand simulator. Seeded per-hand shuffles, keepability scored on the play and on the draw, drill-in with card-by-card draws and live conditional odds. Defined the on-curve probability that the tool never actually had — `P(hold) × P(lands) × P(colours\|lands)`, the last computed exactly and divided back out to avoid double-counting the land requirement. Feeding `DERIVED`'s own source counts back through it returns 0.88–0.94 flat across the grid: closed form and Monte Carlo agreeing independently. Found two real scorecard bugs (one-land hands kept 79% of the time) and four test bugs. 221 → 445 tests. |
 | 2026-08-11 | [glassmorphism-overhaul](memory/2026-08-11-glassmorphism-overhaul.md) | The visual pass. Token system, three-elevation glass over a fixed bloom backdrop, motion built to survive a per-keystroke `innerHTML` rebuild, contrast solved numerically rather than by eye. Functionality untouched, 221 tests green throughout. Two findings that will bite anyone who forgets them: nested surfaces need a *dark* overlay, and CSS transitions are dead code on elements this app recreates every keystroke. |
@@ -118,6 +118,13 @@ thing with a written plan behind it. Candidates, in rough order of value:
   is geometric in closed form. Under the old Vancouver rule this would have been
   wrong, which is why it reads like an off-by-one to anyone who has not thought
   it through — do not "fix" it.
+- **`matches()` is the tool's NARROWEST reader of a card** — a type line and a
+  mana value, nothing else. It falls back to `card.land` when there is no type
+  line (an inline `[land:XY]` tag has none), and every caller must skip `unknown`
+  cards itself, because an unresolved card passes every NEGATIVE filter and every
+  "MV ≤ n" test. Both rules exist because a caller assumed it knew as much as
+  `analyseCards` does. Check what it does with a type-line-less card BEFORE
+  reusing it, not after.
 - **`total===0` is not a reliable test for "no deck".** A broken variant carries
   the analysis SHAPE, empty, so it has total zero and any check that reaches the
   empty state first tells the user to paste a list they already pasted. Two
@@ -126,6 +133,13 @@ thing with a written plan behind it. Candidates, in rough order of value:
   a goal clause with no card chosen — both get an explanation rather than a
   confident number. Plausible-looking wrong answers are the failure this codebase
   keeps rediscovering, and refusing is cheaper than being subtly wrong.
+- **A refusal and a legitimate zero must not share a branch.** `vennAtoms`
+  returning null means "I cannot answer this"; `total===0` means "the answer is
+  zero". Merging them printed a confident exact 0% for a sixty-card deck.
+- **Every live handler clamps to the same range its `sanitize*` does.** A number
+  input's `max` is not enforced for a typed value, so a looser handler means the
+  figure on screen and the figure after a reload differ with nothing to explain
+  it. Three of these shipped in session six and were caught in review.
 - **A test holding a DOM node across an edit stops testing.** `render()` rebuilds
   panels wholesale, so a node captured before a change is detached and the events
   fired at it go nowhere. Re-query after every interaction in `dom.test.js`.
