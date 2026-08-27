@@ -423,6 +423,33 @@ table.cmp td.cbroken{color:var(--dim2)}
 .cminiax span{flex:1;text-align:center;font-size:9.5px;color:var(--dim2)}
 .cminifoot{font-size:11px;color:var(--dim);margin-top:var(--s2);font-variant-numeric:tabular-nums}
 
+/* ---- goals and the consistency tab ----
+   No new colour values: the chart reuses --acc/--good/--warn and the colour
+   identity hues, all of which were already solved against these surfaces, and
+   the clause wells use the same dark --panel2 overlay every nested surface in
+   this file uses. */
+.gblock{padding-bottom:var(--s3);border-bottom:1px solid var(--line);margin-bottom:var(--s2)}
+.gblock:last-of-type{border-bottom:none;margin-bottom:0}
+.grow{display:grid;grid-template-columns:44px 1fr 26px;gap:6px;align-items:center;margin-bottom:6px}
+.grow input{width:100%;font-size:11.5px;padding:5px 6px;text-align:center}
+.grow select{min-width:0;width:100%;font-size:11.5px;padding:5px 7px}
+.gsel{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:0 0 var(--s3) 44px;
+  padding:var(--s2);border-radius:var(--r1);background:var(--panel2);border:1px solid var(--edge)}
+.gsel select{font-size:11px;padding:4px 6px}
+.gsel input{font-size:11px;padding:4px 6px;text-align:center}
+.glclauses{display:flex;flex-direction:column;gap:5px;margin-top:var(--s2)}
+.glclause{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s3);
+  padding:6px 10px;border-radius:var(--r1);background:var(--panel2);border:1px solid var(--edge)}
+.glclause b{font-size:12px;font-weight:650}
+.glclause span{font-size:10.5px;color:var(--dim2);text-align:right;flex:none}
+.glchart{margin-top:var(--s3)}
+.glchart svg{width:100%;height:auto;display:block}
+.glkey{display:flex;flex-wrap:wrap;gap:var(--s3);margin-top:var(--s2);font-size:11px;color:var(--dim)}
+.glkey span{display:inline-flex;align-items:center;gap:6px}
+.glkey i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.glknee{font-size:12px;color:var(--dim);line-height:1.65;margin-top:var(--s3);
+  padding-left:var(--s3);border-left:2px solid var(--edge-str)}
+
 /* ---- scrollbars ---- */
 *::-webkit-scrollbar{width:11px;height:11px}
 *::-webkit-scrollbar-track{background:transparent}
@@ -529,6 +556,11 @@ Then click “Look up costs (Scryfall)” above."></textarea>
     </div>
 
     <div class="card">
+      <h2>Goals <span id="goalCount" class="mini"></span></h2>
+      <div id="goalEditor"></div>
+    </div>
+
+    <div class="card">
       <h2>Assumptions</h2>
       <div class="stat"><span class="k">Deck size</span><input type="number" id="deckSize" value="60"></div>
       <div class="stat"><span class="k">Consistency target</span>
@@ -558,6 +590,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
       <button data-t="copies">How Many Copies</button>
       <button data-t="payoffs">Payoffs</button>
       <button data-t="goldfish">Goldfish</button>
+      <button data-t="consistency">Consistency</button>
       <button data-t="compare">Compare</button>
       <button data-t="method">Method</button>
     </div>
@@ -700,6 +733,25 @@ Then click “Look up costs (Scryfall)” above."></textarea>
           edge. The score itself is a heuristic — open any hand to see the five components behind its number.</div>
       </div>
       <div id="gfOut"></div>
+    </div>
+
+    <!-- CONSISTENCY -->
+    <div id="p-consistency" class="hide">
+      <div class="card">
+        <h2>Consistency</h2>
+        <div class="row">
+          <label class="gflab"><span class="tip" tabindex="0" data-tip="How many mulligans you are willing to take while still insisting on the goal. Take one more than this and you keep whatever you are dealt — that forced keep is the last row of every table below.">Insist for up to</span>
+            <input type="number" id="glMulls" value="2" min="0" max="6" style="width:56px">
+            <span class="mini">mulligans</span></label>
+          <span class="mini" id="glDeck"></span>
+        </div>
+        <div class="note">A goal is your own definition of a good opening hand, and every figure on this tab is
+          <b>exact</b> unless it says otherwise — no sampling, no noise band. Under the London mulligan you look at a
+          fresh seven every time and bottom cards only after deciding to keep, so the chance a look meets your goal is
+          the same at every mulligan and the whole chain solves in closed form. What insisting costs you is therefore
+          nothing but cards. See the Method tab.</div>
+      </div>
+      <div id="glOut"></div>
     </div>
 
     <!-- COMPARE -->
@@ -2069,6 +2121,384 @@ function pTypesSeenBy(cards, turn, onPlay, want){
   return {p:r.p, seen, method:r.method, upperBound:true};
 }
 
+/* ---- goal state, presets and views ----------------------------------------
+
+   Goals are per-build state, like payoffs and variants: they describe THIS
+   deck's plan and are meaningless without it. The view builders below are pure
+   string builders and live here rather than in RENDER for the reason the
+   goldfish and compare builders do — extract.js cannot reach RENDER, and a
+   broken template literal does not throw, it renders the word `undefined`
+   inside a percentage and nothing notices. */
+let GOALS=[], GOID=0, GOAL_MULLS=2;
+
+function newGoal(name, clauses){
+  return {id:++GOID, name:String(name||'').trim()||`Goal ${GOID}`,
+          clauses: clauses ? JSON.parse(JSON.stringify(clauses)) : []};
+}
+const landFilter  = ()=>({mode:'filter', f:{creature:'any', land:'yes', permanent:'any', mvOp:'any', mvVal:0}});
+const cheapFilter = ()=>({mode:'filter', f:{creature:'any', land:'no',  permanent:'any', mvOp:'lte', mvVal:2}});
+
+/* The two decks that motivated the feature, shipped as presets, plus the
+   generic opener everyone wants. "Leyline start" arrives with no card chosen —
+   the tool does not know which card your deck's free start is, and guessing one
+   would put a confident number against a goal you did not write. */
+const GOAL_PRESETS = {
+  leyline: {name:'Leyline start', clauses:[
+    {kind:'cards', n:1, sel:{mode:'named', names:[]}},
+    {kind:'cards', n:2, sel:landFilter()}]},
+  delirium: {name:'Delirium types', clauses:[
+    {kind:'types', n:3},
+    {kind:'cards', n:2, sel:landFilter()}]},
+  curve: {name:'Two lands and a two-drop', clauses:[
+    {kind:'cards', n:2, sel:landFilter()},
+    {kind:'cards', n:1, sel:cheapFilter()}]},
+  custom: {name:'Custom goal', clauses:[
+    {kind:'cards', n:2, sel:landFilter()}]}
+};
+function addGoal(kind){
+  const p = GOAL_PRESETS[kind] || GOAL_PRESETS.custom;
+  GOALS.push(newGoal(p.name, p.clauses));
+  render();
+}
+function getGoal(id){ return GOALS.find(g=>g.id===id)||null; }
+
+/* Anything standing between this goal and a number.
+
+   A `blocked` issue means the goal is not finished being written and must NOT
+   be evaluated — reporting a confident 0% for a clause with no card chosen yet
+   is the same failure as analysing a half-applied variant swap. A `warn` means
+   the goal is complete but impossible or near-impossible in this list, which is
+   a real finding and gets a real number. */
+function goalIssues(goal, cards){
+  const out=[];
+  const clauses = (goal && Array.isArray(goal.clauses)) ? goal.clauses : [];
+  if(!clauses.length){
+    out.push({level:'blocked', msg:'No clauses yet. Add one and this becomes a definition of a good opening hand.'});
+    return out;
+  }
+  const spec = goalSets(goal, cards);
+  clauses.forEach((cl,i)=>{
+    const n = i+1;
+    if(cl.kind==='types'){
+      const avail = spec[i] ? spec[i].sets.length : 0;
+      if(cl.n>avail)
+        out.push({level:'warn', msg:`Clause ${n} wants ${cl.n} distinct card types and this list only holds ${avail}.`});
+      return;
+    }
+    if(cl.sel && cl.sel.mode==='named'){
+      const names=(cl.sel.names||[]).filter(x=>String(x||'').trim());
+      if(!names.length){ out.push({level:'blocked', msg:`Clause ${n} has no card chosen yet.`}); return; }
+    }
+    if(spec[i] && spec[i].sets[0].size===0)
+      out.push({level:'warn', msg:`Clause ${n} matches nothing in this list, so the goal cannot be met.`});
+  });
+  return out;
+}
+const goalReady = (goal, cards)=> !goalIssues(goal, cards).some(i=>i.level==='blocked');
+
+/* Human-readable clause text. Goes into markup, so callers escape it. */
+function selLabel(sel){
+  if(!sel) return 'nothing';
+  if(sel.mode==='named'){
+    const names=(sel.names||[]).filter(x=>String(x||'').trim());
+    return names.length ? names.join(' or ') : '(no card chosen)';
+  }
+  const f=sel.f||{}, bits=[];
+  if(f.creature==='yes') bits.push('creature'); else if(f.creature==='no') bits.push('noncreature');
+  if(f.land==='yes') bits.push('land'); else if(f.land==='no') bits.push('nonland');
+  if(f.permanent==='yes') bits.push('permanent'); else if(f.permanent==='no') bits.push('nonpermanent');
+  if(f.mvOp==='lte') bits.push(`MV ≤ ${f.mvVal}`);
+  else if(f.mvOp==='gte') bits.push(`MV ≥ ${f.mvVal}`);
+  else if(f.mvOp==='eq') bits.push(`MV = ${f.mvVal}`);
+  return bits.length ? bits.join(' ') : 'any card';
+}
+function clauseLabel(cl){
+  const n = Math.max(0, Math.floor(+(cl&&cl.n)||0));
+  if(cl && cl.kind==='types') return `at least ${n} distinct card type${n===1?'':'s'}`;
+  return `at least ${n} × ${selLabel(cl&&cl.sel)}`;
+}
+
+/* Everything one goal needs to render: its exact probability, the chain it
+   implies, and the size of every set it is built from. */
+function goalEval(goal, cards, handSize, maxMulls, opts){
+  const issues = goalIssues(goal, cards);
+  const ready  = !issues.some(i=>i.level==='blocked');
+  const spec   = goalSets(goal, cards);
+  const r      = ready ? pGoalCached(goal, cards, handSize, opts) : null;
+  const chain  = r ? mulliganChain(r.p, maxMulls, handSize) : null;
+  return {goal, spec, r, chain, issues, ready, handSize};
+}
+const goalEvals = (goals, cards, handSize, maxMulls, opts)=>
+  (goals||[]).map(g=>goalEval(g, cards, handSize, maxMulls, opts));
+
+/* One point per goal per policy, grouped back into a series per goal so each
+   one gets its own knee. Only ready goals reach here. */
+function goalSeries(goals, cards, handSize, maxMulls, opts){
+  const pts = goalFrontier(goals, cards, handSize, maxMulls, opts);
+  const by = new Map();
+  pts.forEach(p=>{ if(!by.has(p.goalId)) by.set(p.goalId, []); by.get(p.goalId).push(p); });
+  return [...by.entries()].map(([goalId, points])=>
+    ({goalId, name:points[0].goalName, points, knee:frontierKnee(points)}));
+}
+
+/* ---- views ---------------------------------------------------------------- */
+
+const glPct  = x => (x*100).toFixed(1)+'%';
+const glTone = v => v>=0.7?'good' : v>=0.4?'warn' : 'bad';
+const glCards = x => x.toFixed(2);
+
+/* The method label. An exact figure and a sampled one are different kinds of
+   number and the panel never lets them look alike — the same distinction the
+   Compare tab established, reused rather than reinvented. */
+function goalMethodPill(r){
+  if(!r) return '';
+  return r.method==='exact'
+    ? `<span class="pill good" title="Computed exactly: a multivariate hypergeometric over ${r.atoms} disjoint atoms. No sampling, no noise.">exact</span>`
+    : `<span class="pill warn" title="The atom enumeration exceeded its budget, so this was estimated by dealing ${r.trials} hands. Standard error ±${(r.se*100).toFixed(2)}pp.">sampled ±${(r.se*100).toFixed(2)}pp</span>`;
+}
+
+/* Where you stop, and what you are holding when you do. Printed in full rather
+   than summarised, because the policy is easier to read off the distribution
+   than off the parameter that generated it. */
+function goalChainHTML(ev){
+  const ch = ev.chain, gid = ev.goal.id;
+  const rows = ch.stops.map((s,j)=>{
+    const w = Math.max(0, Math.min(100, s.p*100));
+    return `<tr>
+      <td>${s.forced ? `after ${s.mulligans} mulligan${s.mulligans===1?'':'s'}, keep anything`
+                     : s.mulligans===0 ? 'the opening seven' : `after ${s.mulligans} mulligan${s.mulligans===1?'':'s'}`}</td>
+      <td class="${s.forced?'bad':'good'}">${s.handSize}</td>
+      <td>${glPct(s.p)}</td>
+      <td><div class="bar" style="width:150px"><i data-bk="gl_${gid}_${j}" style="width:${w}%;background:var(--${s.forced?'bad':'good'})"></i></div></td>
+    </tr>`;
+  }).join('');
+  return `<table><thead><tr><th>You stop</th><th>Cards</th><th>Chance</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function goalClauseHTML(ev){
+  return ev.spec.map((cl,i)=>{
+    const src = ev.goal.clauses[i];
+    const detail = cl.kind==='types'
+      ? `${cl.sets.length} type${cl.sets.length===1?'':'s'} in the list: ${cl.sets.map(s=>s.type).join(', ')||'none'}`
+      : `${cl.sets[0].size} card${cl.sets[0].size===1?'':'s'} in the list`;
+    return `<div class="glclause"><b>${esc(clauseLabel(src))}</b><span>${esc(detail)}</span></div>`;
+  }).join('');
+}
+
+function goalCardHTML(ev){
+  const g = ev.goal;
+  const head = `<div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <div><b style="font-size:15px">${esc(g.name)}</b> ${goalMethodPill(ev.r)}</div>
+      <div class="row"><button data-grn="${g.id}">Rename</button><button data-gdel="${g.id}">Remove</button></div>
+    </div>`;
+
+  const flags = ev.issues.map(i=>
+    `<div class="flag${i.level==='blocked'?'':' bad'}">${esc(i.msg)}</div>`).join('');
+
+  if(!ev.ready){
+    return `<div class="card" style="background:var(--panel2)" data-gid="${g.id}">${head}${flags}
+      <div class="note">Nothing is calculated for an unfinished goal. A number here would be an answer about a
+      plan you have not written yet — the same reason a half-applied sideboard swap is refused rather than
+      analysed.</div></div>`;
+  }
+
+  const p = ev.r.p, ch = ev.chain;
+  const tone = glTone(p);
+  return `<div class="card" style="background:var(--panel2)" data-gid="${g.id}">
+    ${head}${flags}
+    <div class="glclauses">${goalClauseHTML(ev)}</div>
+    <div class="split" style="gap:14px;margin-top:var(--s4)">
+      <div>
+        <div class="big ${tone}"><span data-nk="gl_${g.id}">${glPct(NUMSTATE['gl_'+g.id] ?? p)}</span></div>
+        <div class="mini">chance a fresh ${ev.handSize} meets it</div>
+        <div style="margin-top:12px">
+          <div class="stat"><span class="k">Insisting up to ${ch.maxMulls} mulligan${ch.maxMulls===1?'':'s'}</span>
+            <span class="v ${glTone(ch.pGoal)}">${glPct(ch.pGoal)}</span></div>
+          <div class="stat"><span class="k">Cards you keep, on average</span><span class="v">${glCards(ch.eCards)}</span></div>
+          <div class="stat"><span class="k">Mulligans, on average</span><span class="v">${ch.eMulls.toFixed(2)}</span></div>
+          <div class="stat"><span class="k">You give up and keep anything</span>
+            <span class="v ${ch.pForced<=0.2?'good':ch.pForced<=0.4?'warn':'bad'}">${glPct(ch.pForced)}</span></div>
+        </div>
+      </div>
+      <div>${goalChainHTML(ev)}</div>
+    </div>
+    <div class="mini" style="margin-top:10px">${ev.r.method==='exact'
+      ? `Exact, over ${ev.r.atoms} disjoint atom${ev.r.atoms===1?'':'s'} of the ${ev.r.total}-card list.`
+      : `Estimated from ${ev.r.trials} dealt hands of the ${ev.r.total}-card list.`}
+      Insisting ${ch.maxMulls===0?'not at all':`up to ${ch.maxMulls} time${ch.maxMulls===1?'':'s'}`} moves you from
+      ${glPct(p)} to ${glPct(ch.pGoal)} and costs ${glCards(7-ch.eCards)} cards on average.</div>
+  </div>`;
+}
+
+/* The frontier.
+
+   Y is pinned to 0–100% rather than fitted to the data. A fitted axis makes
+   every curve look dramatic, including one that moves two points, and this
+   chart exists to show how big the trade actually is. */
+const GOAL_HUES = ['acc','good','warn','U','G','W'];
+function goalChartHTML(series){
+  if(!series.length) return '';
+  const W=560, H=250, L=46, R=16, T=14, B=42;
+  const all=[].concat(...series.map(s=>s.points));
+  if(!all.length) return '';
+  let x0=Math.min(...all.map(p=>p.eCards)), x1=Math.max(...all.map(p=>p.eCards));
+  if(x1-x0 < 0.25){ x0-=0.2; x1+=0.2; }
+  const X = v => L + (v-x0)/(x1-x0)*(W-L-R);
+  const Y = v => T + (1-v)*(H-T-B);
+
+  const grid=[];
+  for(let i=0;i<=4;i++){
+    const y=Y(i/4);
+    grid.push(`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    grid.push(`<text x="${L-7}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--dim2)">${i*25}%</text>`);
+  }
+  for(let i=0;i<=4;i++){
+    const v=x0+(x1-x0)*i/4, x=X(v);
+    grid.push(`<line x1="${x.toFixed(1)}" y1="${T}" x2="${x.toFixed(1)}" y2="${H-B}" stroke="var(--line)" stroke-width="1" opacity=".5"/>`);
+    grid.push(`<text x="${x.toFixed(1)}" y="${H-B+16}" text-anchor="middle" font-size="10" fill="var(--dim2)">${v.toFixed(2)}</text>`);
+  }
+
+  const body = series.map((s,si)=>{
+    const hue = `var(--${GOAL_HUES[si % GOAL_HUES.length]})`;
+    const pts = s.points.map(p=>`${X(p.eCards).toFixed(1)},${Y(p.pGoal).toFixed(1)}`).join(' ');
+    const dots = s.points.map((p,i)=>{
+      const isKnee = s.knee && s.knee.index===i;
+      return `<circle cx="${X(p.eCards).toFixed(1)}" cy="${Y(p.pGoal).toFixed(1)}" r="${isKnee?5:3.2}"
+        fill="${isKnee?'none':hue}" stroke="${hue}" stroke-width="${isKnee?2.5:0}">
+        <title>${esc(p.label)} — ${glPct(p.pGoal)} of the time, ${glCards(p.eCards)} cards on average</title></circle>`;
+    }).join('');
+    return `<polyline points="${pts}" fill="none" stroke="${hue}" stroke-width="1.8" opacity=".85"/>${dots}`;
+  }).join('');
+
+  const key = series.map((s,si)=>
+    `<span><i style="background:var(--${GOAL_HUES[si % GOAL_HUES.length]})"></i>${esc(s.name)}</span>`).join('');
+
+  return `<div class="glchart">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
+         aria-label="Probability of the goal against expected cards kept">
+      ${grid.join('')}
+      <text x="${(L+(W-R))/2}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="var(--dim2)">expected cards kept</text>
+      ${body}
+    </svg>
+    <div class="glkey">${key}</div>
+  </div>`;
+}
+
+/* The knee, named and not recommended. */
+function goalKneeHTML(series){
+  const lines = series.map(s=>{
+    if(!s.knee) return `<div class="glknee"><b>${esc(s.name)}</b> — the trade is close to a straight line here:
+      every extra mulligan buys about as much as the last one, so there is no bend to point at.</div>`;
+    const k=s.knee.point, prev=s.points[s.knee.index-1], next=s.points[s.knee.index+1];
+    return `<div class="glknee"><b>${esc(s.name)}</b> — the curve bends at
+      <b>${k.mulls===0?'no mulligans':`up to ${k.mulls} mulligan${k.mulls===1?'':'s'}`}</b>:
+      ${glPct(k.pGoal)} of the time, ${glCards(k.eCards)} cards.
+      Getting there from ${glPct(prev.pGoal)} cost ${glCards(prev.eCards-k.eCards)} cards;
+      the next step buys ${((next.pGoal-k.pGoal)*100).toFixed(1)}pp for ${glCards(k.eCards-next.eCards)}.</div>`;
+  }).join('');
+  return lines;
+}
+
+function consistencyHTML(A, evals, series, maxMulls){
+  /* Broken FIRST. A broken variant carries the analysis shape empty, so its
+     total is zero and the ordinary empty state would tell you to paste a
+     decklist you have already pasted. */
+  if(A.broken)
+    return `<div class="card">` + empty('This variant cannot be applied',
+      'Its swaps no longer match the maindeck, so there is no sixty to evaluate a goal against. Fix the swaps ' +
+      'in the Sideboard panel, or switch back to the maindeck.') + `</div>`;
+
+  if(A.total===0)
+    return `<div class="card">` + empty('Deck goals',
+      'A goal is your own definition of a good opening hand — “at least one Leyline Axe and two lands”, ' +
+      '“three distinct card types and two lands”. Build one on the left and this works out how often you get ' +
+      'it, how much digging for it costs you in cards, and where digging stops being worth it. Paste a ' +
+      'decklist to begin.') + `</div>`;
+
+  if(!evals.length)
+    return `<div class="card">` + empty('No goals yet',
+      'Add one on the left — there are presets for a free-spell start, for delirium, and for the ordinary ' +
+      '“two lands and something to cast”. Every figure on this tab is computed against the deck you are ' +
+      'currently viewing, so a sideboard plan that cuts the payoff moves the answer.') + `</div>`;
+
+  const unresolved = (A.unknown && A.unknown.length)
+    ? `<div class="flag">${A.unknown.length} card${A.unknown.length===1?'':'s'} in this list could not be resolved.
+       They have no type line, so they fill the deck but never satisfy a clause and never count toward a card
+       type — every figure below is understated until you run “Look up costs”.</div>`
+    : '';
+
+  const ready = evals.filter(e=>e.ready);
+  const frontier = ready.length ? `<div class="card">
+      <h2>How hard to dig</h2>
+      <div class="note">Each point is a policy: keep the first hand that meets the goal, giving up after that many
+        mulligans. Going right to left you insist harder — you get the start you want more often, and you keep
+        fewer cards when you do. No point on this curve beats another, which is why nothing here is marked
+        best.</div>
+      ${goalChartHTML(series)}
+      ${goalKneeHTML(series)}
+    </div>` : '';
+
+  return unresolved
+    + `<div>${evals.map(goalCardHTML).join('')}</div>`
+    + frontier;
+}
+
+/* ---- the goal builder, in the left column ---------------------------------
+   Dropdowns wherever the choice can be enumerated, exactly as the swap editor
+   does: it makes "the card must be in the deck" true by construction rather
+   than validated afterwards, and removes typos as a source of a goal that
+   silently matches nothing. */
+function goalEditorHTML(A, goals){
+  const sel=(v,opts,attr)=>`<select data-attr="${attr}">${opts.map(([k,l])=>
+    `<option value="${esc(k)}"${String(k)===String(v)?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const YNA=[['any','any'],['yes','must be'],['no','must not be']];
+
+  const cardOpts = [['','— pick a card —']].concat(
+    (A.cards||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>[c.name, `${c.qty} ${c.name}`]));
+
+  const body = (goals||[]).map((g,gi)=>{
+    const rows = (g.clauses||[]).map((cl,ci)=>{
+      const isTypes = cl.kind==='types';
+      const named = !isTypes && cl.sel && cl.sel.mode==='named';
+      const f = (!isTypes && cl.sel && cl.sel.f) || {};
+      const detail = isTypes ? '' : `<div class="gsel" data-gid="${g.id}" data-ci="${ci}">
+          ${sel(named?'named':'filter', [['named','a specific card'],['filter','a filter']], 'mode')}
+          ${named
+            ? sel((cl.sel.names||[])[0]||'', cardOpts, 'name')
+            : `${sel(f.creature||'any', YNA, 'creature')}<span class="mini">creature</span>
+               ${sel(f.land||'any', YNA, 'land')}<span class="mini">land</span>
+               ${sel(f.permanent||'any', YNA, 'permanent')}<span class="mini">permanent</span>
+               ${sel(f.mvOp||'any', [['any','any MV'],['lte','MV ≤'],['gte','MV ≥'],['eq','MV =']], 'mvOp')}
+               <input type="number" data-attr="mvVal" value="${+f.mvVal||0}" min="0" max="16" style="width:44px">`}
+        </div>`;
+      return `<div class="grow" data-gid="${g.id}" data-ci="${ci}">
+          <input type="number" data-attr="n" value="${Math.max(0,Math.floor(+cl.n||0))}" min="0" max="7">
+          ${sel(cl.kind||'cards', [['cards','of…'],['types','distinct card types']], 'kind')}
+          <button class="vdel" data-gclause="${g.id}:${ci}" title="Remove this clause">×</button>
+        </div>${detail}`;
+    }).join('');
+
+    return `<div class="gblock" data-gid="${g.id}">
+      <div class="vhead"><span class="vname">${esc(g.name)}</span>
+        <button data-grn="${g.id}">Rename</button><button data-gdel="${g.id}">Delete</button></div>
+      ${rows ? `<div class="vlegend" style="grid-template-columns:44px 1fr 26px"><span>At least</span><span>What</span><span></span></div>` : ''}
+      ${rows || `<div class="mini">No clauses yet — every hand meets this goal until you add one.</div>`}
+      <div class="row" style="margin-top:var(--s2)"><button data-gadd="${g.id}">+ Add clause</button></div>
+    </div>`;
+  }).join('');
+
+  return `${body}
+    <div class="row" style="margin-top:var(--s3)">
+      <button id="goalLeyline">+ Free-spell start</button>
+      <button id="goalDelirium">+ Delirium</button>
+      <button id="goalCurve">+ Two lands and a two-drop</button>
+      <button id="goalCustom">+ Custom</button>
+    </div>
+    ${goals && goals.length ? '' : `<div class="note">A goal is your own definition of a good opening hand. Add one and the
+      Consistency tab works out how often you get it and what insisting on it costs.</div>`}`;
+}
+
 /* ============================================================
    GOLDFISH
    ============================================================ */
@@ -3293,6 +3723,8 @@ function render(){
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
   renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
   renderPayoffs(A); renderUnresolved(A); renderMethod(A);
+  renderGoalEditor(A);
+  renderConsistency(A);
   renderCompare();
   runBars();
 }
@@ -3384,6 +3816,38 @@ function renderSideboard(A){
     <div class="row" style="margin-top:var(--s3)"><button id="vAddSwap">+ Add swap</button></div>
     <div class="vnet${netClass}">${netText}</div>
     ${r.problems.map(p=>`<div class="flag${p.level==='error'?' bad':''}">${esc(p.msg)}</div>`).join('')}`;
+}
+
+/* ---------- goals and consistency ----------------------------------------- */
+
+/* The builder in the left column. It is always visible, unlike the panel, so it
+   is rebuilt on every render — cheap, because it does no probability work. */
+function renderGoalEditor(A){
+  $('goalCount').textContent = GOALS.length ? `${GOALS.length}` : '';
+  $('goalEditor').innerHTML = goalEditorHTML(A, GOALS);
+}
+
+/* Every goal costs an atom enumeration, and with the tab hidden nobody is
+   reading the answer — so this stays off the typing path entirely, exactly as
+   renderCompare does, and the tab handler calls it on arrival instead.
+
+   `A` is the deck currently being VIEWED: the maindeck, or the active variant.
+   A sideboard plan that cuts the payoff should visibly move the frontier, and
+   it does because every figure here is computed from A.cards. */
+function renderConsistency(A){
+  if(TAB!=='consistency') return;
+  const a = A || currentA();
+  const mulls = Math.max(0, Math.min(6, +$('glMulls').value||0));
+  const hand = 7;
+  const evals = goalEvals(GOALS, a.cards, hand, mulls);
+  const ready = evals.filter(e=>e.ready).map(e=>e.goal);
+  const series = ready.length ? goalSeries(ready, a.cards, hand, mulls) : [];
+
+  $('glDeck').textContent = a.total
+    ? `evaluating ${a.variant ? '“'+a.variant.name+'”' : 'the maindeck'} — ${a.total} cards`
+    : '';
+  $('glOut').innerHTML = consistencyHTML(a, evals, series, mulls);
+  evals.forEach(e=>{ if(e.ready) tweenNum('gl_'+e.goal.id, e.r.p, glPct); });
 }
 
 /* Compare state. Sampled results are session-only, like the goldfish's, and are
@@ -3894,15 +4358,63 @@ function sanitizeVariants(raw){
       .filter(s=>s.out||s.in)
   };});
 }
+/* Goals travel inside the build for the same reason variants do: a goal is a
+   statement about THIS deck's plan and means nothing without the list.
+
+   Same two-pass id treatment, and for the same reason — reserving every valid
+   id before minting a new one stops an early entry with a missing id from
+   taking a number a later entry legitimately owns. Session five got that wrong
+   on the first pass and it silently repointed a saved selection.
+
+   Clauses are rebuilt field by field rather than trusted. A clause whose kind
+   changed on the way in must not keep the other kind's fields: a `types` clause
+   carrying a stale `sel` is one whose description and whose maths disagree. */
+function sanitizeClause(c){
+  if(!c || typeof c!=='object') return null;
+  const n = Math.max(0, Math.min(7, Math.floor(+c.n||0)));
+  if(c.kind==='types') return {kind:'types', n};
+  const raw = (c.sel && typeof c.sel==='object') ? c.sel : {};
+  if(raw.mode==='named'){
+    const names = (Array.isArray(raw.names)?raw.names:[])
+      .map(x=>String(x||'').trim().slice(0,160)).filter(Boolean).slice(0,16);
+    return {kind:'cards', n, sel:{mode:'named', names}};
+  }
+  const f = (raw.f && typeof raw.f==='object') ? raw.f : {};
+  const yna = v => (v==='yes'||v==='no') ? v : 'any';
+  const op  = v => (v==='lte'||v==='gte'||v==='eq') ? v : 'any';
+  return {kind:'cards', n, sel:{mode:'filter', f:{
+    creature:yna(f.creature), land:yna(f.land), permanent:yna(f.permanent),
+    mvOp:op(f.mvOp), mvVal:Math.max(0, Math.min(16, Math.floor(+f.mvVal||0)))}}};
+}
+function sanitizeGoals(raw){
+  if(!Array.isArray(raw)) return [];
+  const list = raw.filter(g=>g && typeof g==='object');
+  const used = new Set();
+  list.forEach(g=>{ if(Number.isInteger(g.id) && g.id>0 && !used.has(g.id)) used.add(g.id); });
+  let next=0;
+  const taken=new Set();
+  return list.map(g=>{
+    let id = Number.isInteger(g.id) && g.id>0 && !taken.has(g.id) ? g.id : 0;
+    if(!id){ do { next++; } while(used.has(next) || taken.has(next)); id=next; }
+    taken.add(id);
+    return {
+      id,
+      name: String(g.name||'').trim().slice(0,60) || `Goal ${id}`,
+      clauses: (Array.isArray(g.clauses)?g.clauses:[]).map(sanitizeClause).filter(Boolean).slice(0,8)
+    };
+  });
+}
 function snapshotState(){
   return {
-    schema: 2,
+    schema: 3,
     list: $('list').value,
     deckSize:+$('deckSize').value||60, thr:$('thr').value, play:$('play').value,
     ramp:+$('ramp').value||0, comp:$('comp').value, copyTurn:+$('copyTurn').value||3,
     payoffs: JSON.parse(JSON.stringify(PAYOFFS)),
     variants: JSON.parse(JSON.stringify(VARIANTS)),
     activeVariant: ACTIVE_V,
+    goals: JSON.parse(JSON.stringify(GOALS)),
+    goalMulls: Math.max(0, Math.min(6, +$('glMulls').value||0)),
     saved: new Date().toISOString()
   };
 }
@@ -3922,6 +4434,12 @@ function applyState(b){
   VARIANTS = sanitizeVariants(b.variants);
   VID = VARIANTS.reduce((m,v)=>Math.max(m, v.id||0), 0);
   ACTIVE_V = VARIANTS.some(v=>v.id===b.activeVariant) ? b.activeVariant : null;
+  /* A build saved before this feature existed has no goals. That IS the
+     migration — sanitizeGoals tolerates undefined and returns none, and the
+     schema number moves so a future reader can tell the two apart. */
+  GOALS = sanitizeGoals(b.goals);
+  GOID = GOALS.reduce((m,g)=>Math.max(m, g.id||0), 0);
+  $('glMulls').value = b.goalMulls==null ? 2 : Math.max(0, Math.min(6, Math.floor(+b.goalMulls)||0));
   SNAPSHOT = null;
   $('snap').textContent='Snapshot for diff'; $('clearSnap').classList.add('hide');
 }
@@ -4099,10 +4617,11 @@ $('tabs').addEventListener('click',e=>{
   if(e.target.tagName!=='BUTTON') return;
   [...$('tabs').children].forEach(b=>b.classList.toggle('on',b===e.target));
   TAB=e.target.dataset.t;
-  ['verdict','lands','colors','curve','copies','payoffs','goldfish','compare','method'].forEach(t=>
+  ['verdict','lands','colors','curve','copies','payoffs','goldfish','consistency','compare','method'].forEach(t=>
     $('p-'+t).classList.toggle('hide', t!==TAB));
-  // The compare panel is not computed while it is hidden, so build it on arrival.
+  // Neither panel is computed while it is hidden, so build it on arrival.
   if(TAB==='compare') renderCompare();
+  if(TAB==='consistency') renderConsistency();
 });
 
 /* Variant switching and editing.
@@ -4152,6 +4671,75 @@ $('vEditor').addEventListener('change',e=>{
   sw[attr] = attr==='qty' ? Math.max(0,Math.floor(+e.target.value||0)) : e.target.value;
   render(); markDirty();
 });
+
+/* Goal editing.
+
+   The editor is rebuilt by render(), so its controls are bound by delegation
+   rather than individually — the same reason the swap editor and the payoff
+   editor are. Both the left-column editor and the panel's own header buttons
+   route through one pair of handlers, because "Remove" has to mean the same
+   thing in both places and two copies of that logic is how they drift apart. */
+function goalClick(e){
+  const b = e.target.closest('button'); if(!b) return;
+  if(b.id==='goalLeyline'){ addGoal('leyline');  markDirty(); return; }
+  if(b.id==='goalDelirium'){ addGoal('delirium'); markDirty(); return; }
+  if(b.id==='goalCurve'){ addGoal('curve');    markDirty(); return; }
+  if(b.id==='goalCustom'){ addGoal('custom');   markDirty(); return; }
+
+  if(b.dataset.gadd!=null){
+    const g=getGoal(+b.dataset.gadd); if(!g) return;
+    g.clauses.push({kind:'cards', n:1, sel:landFilter()});
+    render(); markDirty(); return;
+  }
+  if(b.dataset.grn!=null){
+    const g=getGoal(+b.dataset.grn); if(!g) return;
+    const n=prompt('Rename this goal — what the start is called, usually:', g.name);
+    if(n===null) return;
+    g.name=String(n).trim()||g.name; render(); markDirty(); return;
+  }
+  if(b.dataset.gdel!=null){
+    const g=getGoal(+b.dataset.gdel); if(!g) return;
+    if(!confirm(`Delete “${g.name}”? Its clauses go with it — the deck is untouched.`)) return;
+    GOALS=GOALS.filter(x=>x.id!==g.id); render(); markDirty(); return;
+  }
+  if(b.dataset.gclause!=null){
+    const [gid,ci]=String(b.dataset.gclause).split(':');
+    const g=getGoal(+gid); if(!g) return;
+    g.clauses.splice(+ci,1); render(); markDirty(); return;
+  }
+}
+function goalChange(e){
+  const attr=e.target.dataset.attr; if(!attr) return;
+  const row=e.target.closest('[data-gid][data-ci]'); if(!row) return;
+  const g=getGoal(+row.dataset.gid); if(!g) return;
+  const cl=g.clauses[+row.dataset.ci]; if(!cl) return;
+
+  if(attr==='n'){ cl.n=Math.max(0,Math.min(7,Math.floor(+e.target.value||0))); }
+  else if(attr==='kind'){
+    cl.kind=e.target.value;
+    /* Switching kind rebuilds the clause rather than leaving the other kind's
+       fields lying around: a `types` clause carrying a stale `sel` is a clause
+       whose printed description and whose maths disagree. */
+    if(cl.kind==='types'){ delete cl.sel; cl.n=Math.max(1,Math.min(7,cl.n||3)); }
+    else if(!cl.sel) cl.sel=landFilter();
+  }
+  else if(attr==='mode'){
+    cl.sel = e.target.value==='named' ? {mode:'named', names:[]} : landFilter();
+  }
+  else if(attr==='name'){
+    cl.sel = {mode:'named', names: e.target.value ? [e.target.value] : []};
+  }
+  else if(cl.sel && cl.sel.mode==='filter'){
+    cl.sel.f = cl.sel.f || {};
+    cl.sel.f[attr] = attr==='mvVal' ? Math.max(0,Math.floor(+e.target.value||0)) : e.target.value;
+  }
+  render(); markDirty();
+}
+$('goalEditor').addEventListener('click', goalClick);
+$('goalEditor').addEventListener('change', goalChange);
+$('glOut').addEventListener('click', goalClick);
+$('glMulls').addEventListener('input',()=>{ renderConsistency(); markDirty(); });
+$('glMulls').addEventListener('change',()=>{ renderConsistency(); markDirty(); });
 
 $('cmpRun').addEventListener('click', cmpRun);
 $('cmpReseed').addEventListener('click',()=>{

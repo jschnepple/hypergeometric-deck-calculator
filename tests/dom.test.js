@@ -139,15 +139,101 @@ click($('gfRun'));
 chk('hands were dealt', /shipped/.test(text($('gfOut'))), text($('gfOut')).slice(0, 120));
 clean('goldfish', $('gfOut').innerHTML);
 
-group('saving keeps the variant');
+group('the consistency tab, from empty to a frontier');
+const conTab = [...$('tabs').children].find(b => b.dataset.t === 'consistency');
+click(conTab);
+chk('the panel is shown', !$('p-consistency').classList.contains('hide'));
+chk('and teaches before there is anything to show', /No goals yet/.test(text($('glOut'))),
+    text($('glOut')).slice(0, 120));
+chk('it names the deck it is about to describe', /vs Control/.test($('glDeck').textContent),
+    $('glDeck').textContent);
+
+click($('goalCurve'));
+chk('a preset goal appears in the builder', /Two lands/.test($('goalEditor').innerHTML));
+chk('and is answered on the panel', /\d+\.\d%/.test(text($('glOut'))), text($('glOut')).slice(0, 160));
+chk('exactly, not sampled', /exact/.test($('glOut').innerHTML));
+chk('the frontier is drawn', /<svg/.test($('glOut').innerHTML));
+clean('consistency', $('glOut').innerHTML);
+clean('goal builder', $('goalEditor').innerHTML);
+
+group('a goal that is not finished is refused, not answered');
+click($('goalLeyline'));
+chk('the free-spell preset arrives with no card chosen',
+    /no card chosen/.test(text($('glOut'))), text($('glOut')).slice(0, 200));
+chk('and only the finished goal is on the chart',
+    ($('glOut').innerHTML.match(/<polyline/g) || []).length === 1);
+{
+  /* Pick one from the dropdown and it becomes answerable. Both ends of every
+     choice on this tab are enumerated, so a goal cannot name a card the deck
+     does not run. */
+  const blocks = [...$('goalEditor').querySelectorAll('.gblock')];
+  const leyline = blocks[blocks.length - 1];
+  const nameSel = leyline.querySelector('select[data-attr="name"]');
+  chk('the card dropdown offers the maindeck', [...nameSel.options].some(o => o.value === 'Dragon'));
+  nameSel.value = 'Dragon'; fire(nameSel, 'change');
+  chk('choosing one unblocks the goal', !/no card chosen/.test(text($('glOut'))));
+  chk('and puts it on the chart',
+      ($('glOut').innerHTML.match(/<polyline/g) || []).length === 2);
+  clean('consistency, two goals', $('glOut').innerHTML);
+}
+
+group('the mulligan policy is a control, not a constant');
+{
+  const before = text($('glOut'));
+  $('glMulls').value = '5'; fire($('glMulls'), 'change');
+  chk('raising it changes the answer', text($('glOut')) !== before);
+  chk('and the chain runs all the way down', /keep anything/.test(text($('glOut'))));
+  clean('consistency, five mulligans', $('glOut').innerHTML);
+  $('glMulls').value = '2'; fire($('glMulls'), 'change');
+}
+
+group('editing a clause');
+{
+  /* Re-queried after every change on purpose: the builder is rebuilt wholesale
+     by render(), so a node held across an edit is detached and its events go
+     nowhere. Holding one is how you write a test that silently stops testing. */
+  const kind = $('goalEditor').querySelector('.grow select[data-attr="kind"]');
+  kind.value = 'types'; fire(kind, 'change');
+  chk('switching to card types drops the card selector',
+      $('goalEditor').querySelectorAll('.gsel').length === 3,
+      String($('goalEditor').querySelectorAll('.gsel').length));
+  chk('and the panel follows', /distinct card type/.test(text($('glOut'))));
+  clean('consistency, a types clause', $('glOut').innerHTML);
+
+  const n = $('goalEditor').querySelector('.grow input[data-attr="n"]');
+  n.value = '4'; fire(n, 'change');
+  chk('the count is editable', /at least 4 distinct card types/.test(text($('glOut'))));
+
+  const del = $('goalEditor').querySelector('button[data-gclause]');
+  click(del);
+  chk('a clause can be removed', !/at least 4 distinct card types/.test(text($('glOut'))));
+  clean('consistency, after a delete', $('glOut').innerHTML);
+}
+
+group('goals follow the deck you are viewing');
+{
+  const onVariant = text($('glOut'));
+  click($('vbar').querySelector('.vchip[data-v=""]'));
+  click(conTab);
+  chk('switching to the maindeck moves the figures', text($('glOut')) !== onVariant);
+  chk('and the panel says which deck it is describing', /maindeck/.test($('glDeck').textContent));
+  clean('consistency, maindeck', $('glOut').innerHTML);
+  click($('vbar').querySelector('.vchip[data-v="1"]'));
+  click(conTab);
+}
+
+group('saving keeps the variant and the goals');
 $('slotName').value = 'Test build';
 click($('saveSlot'));
 const stored = JSON.parse(w.localStorage.getItem('mtg-mana-calc-v1'));
 const build = stored.builds['Test build'];
 chk('the variant is in the saved build', build.variants.length === 1);
 chk('with its swap', build.variants[0].swaps[0].in === 'Cryptic');
-chk('the schema is stamped', build.schema === 2);
+chk('the schema is stamped', build.schema === 3);
 chk('and the selection is remembered', build.activeVariant === 1);
+chk('the goals are in the saved build', build.goals.length === 2, JSON.stringify(build.goals));
+chk('with their clauses', build.goals.every(g => g.clauses.length >= 1));
+chk('and the mulligan policy', build.goalMulls === 2, String(build.goalMulls));
 
 group('switching back to the maindeck');
 click($('vbar').querySelector('.vchip[data-v=""]'));
