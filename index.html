@@ -1614,6 +1614,462 @@ function renderPayoffs(A){
 }
 
 /* ============================================================
+   GOALS
+   ------------------------------------------------------------
+   Everything above answers a question about the DECK. This section answers a
+   question about the START: I have a definition of a good opening hand for this
+   plan — how often do I get it, what does insisting on it cost me, and where do
+   I stop insisting?
+
+   A GOAL is a conjunction of clauses over the seven cards you look at. Two
+   clause kinds, and deliberately no more, because these two cover every
+   mulligan decision the two decks that motivated this feature actually make:
+
+     {kind:'cards', n, sel}   at least n cards from a set
+     {kind:'types', n}        at least n distinct card types  (delirium)
+
+   `sel` is either a named card list or a filter handed straight to matches(),
+   so the payoff filter vocabulary is reused rather than reinvented.
+
+     Boros Dwarves:  >=1 {Leyline Axe} AND >=2 lands
+     Gruul Delirium: >=3 distinct card types AND >=2 lands
+
+   The probability is EXACT. See vennAtoms for why that takes a partition rather
+   than a per-clause product, and mulliganChain for why London makes the rest of
+   it closed-form rather than a simulation.
+   ============================================================ */
+
+/* The card types delirium counts.
+
+   Kindred is Tribal renamed — the same card type under two names across
+   printings — so they are folded together rather than counted as two types in
+   the same graveyard.
+
+   Supertypes are NOT card types: Basic, Legendary, Snow and World must never
+   contribute. That is why this reads the segment BEFORE the em dash (subtypes
+   live after it) and matches whole words from a fixed list, rather than
+   splitting the line on whitespace and trusting what falls out. */
+const CARD_TYPES = ['Artifact','Battle','Creature','Enchantment','Instant','Kindred','Land','Planeswalker','Sorcery'];
+const TYPE_RE = {};
+CARD_TYPES.forEach(t=>{ TYPE_RE[t] = new RegExp('\\b'+t+'\\b','i'); });
+const TRIBAL_RE = /\bTribal\b/i;
+
+function cardTypes(card){
+  if(!card) return [];
+  const tl = String(card.typeLine||'').split('—')[0];
+  if(!tl.trim()){
+    /* No type line at all. An inline [land:RG] tag discards everything Scryfall
+       knew about the card and an unresolved name never had it — but the parser
+       still has its own verdict on whether the thing is a land, and that verdict
+       is what the rest of the tool already runs on. Anything else contributes no
+       type rather than a guessed one, which understates delirium instead of
+       inventing a type the card may not have. */
+    return card.land ? ['Land'] : [];
+  }
+  const out = CARD_TYPES.filter(t=>TYPE_RE[t].test(tl));
+  if(!out.includes('Kindred') && TRIBAL_RE.test(tl)) out.push('Kindred');
+  return out;
+}
+
+/* Does one card belong to a clause's set? Named lists compare through cardKey
+   so casing and stray whitespace behave the way they do everywhere else. */
+function selMatches(sel, card){
+  if(!sel || !card) return false;
+  if(sel.mode==='named'){
+    const k = cardKey(card.name);
+    return (sel.names||[]).some(n=>cardKey(n)===k);
+  }
+  if(sel.mode==='filter') return matches(card, sel.f||{});
+  return false;
+}
+
+/* Resolve every clause to the sets of deck cards it covers, with quantities.
+
+   One entry per clause. A `cards` clause owns exactly ONE set. A `types` clause
+   owns one set PER CARD TYPE PRESENT IN THE DECK, because "three distinct
+   types" is a statement about several sets at once and the partition below has
+   to be able to see all of them at the same time. */
+function goalSets(goal, cards){
+  const list = (cards||[]).filter(c=>c && Math.max(0,Math.floor(+c.qty||0))>0);
+  const out = [];
+  const clauses = (goal && Array.isArray(goal.clauses)) ? goal.clauses : [];
+  clauses.forEach((cl, ci)=>{
+    const n = Math.max(0, Math.floor(+(cl&&cl.n)||0));
+    if(cl && cl.kind==='types'){
+      const byType = Object.create(null), present = [];
+      list.forEach(c=>cardTypes(c).forEach(t=>{
+        if(!byType[t]){ byType[t]={key:'t'+ci+':'+t, type:t, cards:[], size:0}; present.push(byType[t]); }
+        byType[t].cards.push(c);
+        byType[t].size += Math.floor(+c.qty||0);
+      }));
+      present.sort((a,b)=>CARD_TYPES.indexOf(a.type)-CARD_TYPES.indexOf(b.type));
+      out.push({kind:'types', n, ci, sets:present});
+    } else {
+      const s = {key:'c'+ci, cards:[], size:0};
+      list.forEach(c=>{ if(selMatches(cl&&cl.sel, c)){ s.cards.push(c); s.size += Math.floor(+c.qty||0); } });
+      out.push({kind:'cards', n, ci, sel:(cl&&cl.sel)||null, sets:[s]});
+    }
+  });
+  return out;
+}
+
+/* The flat list of sets the clauses between them care about, plus the map from
+   clause to the indices it owns. Everything below indexes features by position
+   in this flat list. */
+function flatSets(spec){
+  const flat=[], idx=[];
+  spec.forEach(cl=>{
+    const ids=[];
+    cl.sets.forEach(s=>{ ids.push(flat.length); flat.push(s); });
+    idx.push(ids);
+  });
+  return {flat, idx};
+}
+
+/* Partition every card in the deck into exactly ONE atom.
+
+   This is the whole correctness story of the section. An atom is the group of
+   cards belonging to precisely the same subset of the clause sets; atoms are
+   disjoint by construction and their sizes sum back to the deck.
+
+   Partitioning per SET instead double-counts every card that is in two of them
+   — a red creature counted once as a red card and again as a creature — which
+   is the same overlapping-category trap the Method tab documents for colour
+   sources. It also makes a card that satisfies two clauses at once look as
+   though it can only satisfy one, so "at least one red card and at least one
+   creature" silently becomes "two different cards".
+
+   The mask is a plain 31-bit integer, so more than 30 sets is refused rather
+   than wrapped: the caller falls back to sampling. Real goals have two or three
+   clauses, but a delirium clause contributes one set per card type, so the
+   count is not bounded by the clause count alone. */
+const VENN_MAX_SETS = 30;
+function vennAtoms(sets, cards){
+  if(!Array.isArray(sets) || sets.length > VENN_MAX_SETS) return null;
+  const member = sets.map(s=>new Set(s.cards));
+  const byMask = new Map();
+  let total = 0;
+  for(const c of (cards||[])){
+    const q = Math.max(0, Math.floor(+(c&&c.qty)||0));
+    if(!q) continue;
+    total += q;
+    let mask = 0;
+    for(let i=0;i<sets.length;i++) if(member[i].has(c)) mask |= (1<<i);
+    const a = byMask.get(mask);
+    if(a){ a.size += q; a.cards.push(c); }
+    else byMask.set(mask, {mask, size:q, cards:[c]});
+  }
+  /* Constrained atoms first so the feasibility prune bites before the big
+     everything-else atom is reached. The mask-0 atom always sorts last. */
+  const atoms = [...byMask.values()].sort((a,b)=> (b.mask-a.mask) || (b.size-a.size));
+  atoms.forEach(a=>{
+    a.bits = [];
+    for(let i=0;i<sets.length;i++) if(a.mask & (1<<i)) a.bits.push(i);
+  });
+  return {atoms, total, sets:sets.length};
+}
+
+/* Enumeration budget. Exceeding it is not an error, it is the signal to sample
+   instead — and the caller must relabel the figure when that happens. */
+const GOAL_BUDGET = 400000;
+const GOAL_OVER = {over:true};
+
+/* Is this clause satisfied by the finished count vector? */
+function clauseSatisfied(cl, ids, tot){
+  if(cl.kind==='types'){
+    let d=0; for(const f of ids) if(tot[f]>0) d++;
+    return d >= cl.n;
+  }
+  return tot[ids[0]] >= cl.n;
+}
+
+/* Exact multivariate hypergeometric over the atoms.
+
+   Sums the cells that satisfy every clause. The prune is a feasibility check,
+   not an approximation: a branch is abandoned only when no assignment of the
+   cards still to be placed could satisfy some clause, so the sum is the same
+   sum, reached faster. */
+function goalEnumerate(spec, flat, part, handSize, budget){
+  const cap = Math.max(1, Math.floor(budget||GOAL_BUDGET));
+  const atoms = part.atoms, total = part.total, F = flat.flat.length;
+  const h = Math.max(0, Math.min(Math.floor(handSize), total));
+  const den = lnC(total, h);
+  const tot = new Array(F).fill(0);
+
+  /* suf[i][f] = how many cards in set f live in atoms i..end.
+     capFrom[i] = how many cards of any kind live in atoms i..end. */
+  const suf = new Array(atoms.length+1);
+  const capFrom = new Array(atoms.length+1).fill(0);
+  suf[atoms.length] = new Array(F).fill(0);
+  for(let i=atoms.length-1;i>=0;i--){
+    const row = suf[i+1].slice();
+    for(const f of atoms[i].bits) row[f] += atoms[i].size;
+    suf[i] = row;
+    capFrom[i] = capFrom[i+1] + atoms[i].size;
+  }
+
+  let nodes = 0, p = 0;
+
+  const feasible = (i, remaining)=>{
+    const row = suf[i];
+    for(let ci=0; ci<spec.length; ci++){
+      const cl = spec[ci], ids = flat.idx[ci];
+      if(cl.n<=0) continue;
+      if(cl.kind==='types'){
+        let have=0, poss=0;
+        for(const f of ids){
+          if(tot[f]>0) have++;
+          else if(row[f]>0) poss++;
+        }
+        if(have + Math.min(poss, remaining) < cl.n) return false;
+      } else {
+        const f = ids[0];
+        if(tot[f] + Math.min(row[f], remaining) < cl.n) return false;
+      }
+    }
+    return true;
+  };
+
+  const rec = (i, remaining, logAcc)=>{
+    if(++nodes > cap) throw GOAL_OVER;
+    if(!feasible(i, remaining)) return;
+    if(i === atoms.length){
+      if(remaining !== 0) return;
+      for(let ci=0; ci<spec.length; ci++)
+        if(!clauseSatisfied(spec[ci], flat.idx[ci], tot)) return;
+      p += Math.exp(logAcc - den);
+      return;
+    }
+    const a = atoms[i];
+    const hi = Math.min(a.size, remaining);
+    const lo = Math.max(0, remaining - capFrom[i+1]);
+    for(let x=lo; x<=hi; x++){
+      for(const f of a.bits) tot[f] += x;
+      rec(i+1, remaining-x, logAcc + lnC(a.size, x));
+      for(const f of a.bits) tot[f] -= x;
+    }
+  };
+
+  rec(0, h, 0);
+  return Math.max(0, Math.min(1, p));
+}
+
+/* Compile a resolved spec into the cheapest form the per-hand test can use.
+   Built once per run rather than once per hand — the sampled path deals tens of
+   thousands of hands and rebuilding a Set inside that loop dominated it. */
+function compileGoal(spec){
+  return spec.map(cl=>({
+    kind: cl.kind,
+    n: cl.n,
+    set: cl.kind==='types' ? null : new Set(cl.sets[0].cards),
+    types: cl.kind==='types' ? cl.sets.map(s=>s.type) : null
+  }));
+}
+
+/* Does one concrete hand satisfy the goal? Used by the sampled fallback and by
+   the cross-validation, which is the only reason the closed form is trusted. */
+function goalHitsHand(compiled, hand){
+  for(const cl of compiled){
+    if(cl.kind==='types'){
+      const seen = new Set();
+      for(const c of hand) for(const t of cardTypes(c)) seen.add(t);
+      if(seen.size < cl.n) return false;
+    } else {
+      let k=0;
+      for(const c of hand) if(cl.set.has(c)) k++;
+      if(k < cl.n) return false;
+    }
+  }
+  return true;
+}
+
+/* Monte Carlo over the goldfish's own seeded dealer. Deliberately the SAME
+   dealer, so agreeing with it is real independent agreement about the maths
+   rather than two spellings of one shuffle. */
+function pGoalSampled(spec, cards, handSize, seed, trials){
+  const compiled = compileGoal(spec);
+  const deck = expandDeck(cards);
+  const h = Math.max(0, Math.min(Math.floor(handSize), deck.length));
+  const n = Math.max(1, Math.floor(trials||10000));
+  let hits = 0;
+  for(let i=0;i<n;i++){
+    const inst = dealInstance(deck, (seed + i)>>>0, h);
+    if(goalHitsHand(compiled, inst.hand)) hits++;
+  }
+  const p = hits/n;
+  return {p, method:'sampled', se: Math.sqrt(Math.max(0, p*(1-p))/n), trials:n, hits};
+}
+
+/* P(a look of `handSize` cards satisfies the goal).
+
+   Exact when the atom enumeration fits inside the budget, sampled when it does
+   not — and the returned `method` says which, because the UI labels the figure
+   from it. It must never switch quietly: an exact figure and a sampled one are
+   different kinds of number, which is the distinction the Compare tab already
+   established and this reuses. */
+function pGoal(goal, cards, handSize, opts){
+  const h = Math.max(0, Math.floor(handSize==null ? 7 : handSize));
+  const spec = goalSets(goal, cards);
+  if(!spec.length) return {p:1, method:'exact', atoms:0, sets:0, trivial:true, spec};
+
+  const flat = flatSets(spec);
+  const part = vennAtoms(flat.flat, cards);
+  if(part && part.total>0){
+    try{
+      const p = goalEnumerate(spec, flat, part, h, opts&&opts.budget);
+      return {p, method:'exact', atoms:part.atoms.length, sets:flat.flat.length, total:part.total, spec};
+    }catch(e){ if(e!==GOAL_OVER) throw e; }
+  }
+  if(!part || part.total===0)
+    return {p:0, method:'exact', atoms:0, sets:flat.flat.length, total:0, spec};
+
+  const s = pGoalSampled(spec, cards, h, (opts&&opts.seed)||1, (opts&&opts.trials)||20000);
+  return Object.assign(s, {atoms:part.atoms.length, sets:flat.flat.length, total:part.total, spec});
+}
+
+/* pGoal off the typing path.
+
+   render() runs on every keystroke, and with the Consistency tab open that is
+   one enumeration per goal per key. The enumeration is fast but not free, so
+   results are memoised on a key covering EVERYTHING pGoal reads: quantities,
+   names, type lines, mana values and the parser's land verdict.
+
+   Summarising the deck more cheaply than that is the mistake session five made
+   with the compare signature — a signature that cannot see the change it is
+   supposed to detect leaves a stale figure on screen labelled current. A
+   Scryfall lookup changes no name and no quantity, and changes every type line. */
+const GOAL_CACHE = new Map();
+const GOAL_CACHE_MAX = 96;
+const goalSig = g => JSON.stringify((g&&g.clauses)||[]);
+const goalDeckSig = cards => (cards||[])
+  .map(c=>`${c.qty}|${cardKey(c.name)}|${c.typeLine||''}|${c.cmc||0}|${c.land?'L':''}`).join(',');
+
+function pGoalCached(goal, cards, handSize, opts){
+  const key = `${handSize}#${goalSig(goal)}#${goalDeckSig(cards)}`;
+  const hit = GOAL_CACHE.get(key);
+  if(hit) return hit;
+  const r = pGoal(goal, cards, handSize, opts);
+  if(GOAL_CACHE.size >= GOAL_CACHE_MAX) GOAL_CACHE.clear();
+  GOAL_CACHE.set(key, r);
+  return r;
+}
+
+/* ---- the London mulligan chain --------------------------------------------
+
+   The reason this is worth solving in closed form is a property of the London
+   rule that is not obvious until you look at it.
+
+   Under London you shuffle back and look at a FRESH SEVEN every time, then
+   bottom cards of your choosing AFTER deciding to keep. So:
+
+     1. P(a look satisfies the goal) is the same p at every mulligan. The number
+        of looks until success is plainly geometric.
+     2. Evaluating the goal on the seven you LOOK AT is correct — you keep
+        first and bottom afterwards, choosing the worst cards. Under the old
+        Vancouver rule, where you drew one fewer card, it would have been wrong.
+        A reader who has not thought this through will read it as a bug, which
+        is why it is stated in the Method tab as well as here.
+     3. The cost of insisting is therefore entirely CARD COUNT. A hand found on
+        the second mulligan is a five-card hand.
+
+   Second-order effect, noted and deliberately not modelled: bottomed cards go
+   to the bottom of the library, so the composition of later draws is very
+   slightly different from a fresh shuffle. It moves nothing at this resolution.
+
+   `maxMulls` is how many mulligans you will still insist on the goal over. Look
+   j = 0..maxMulls stops if the goal is met; if look maxMulls also fails you
+   mulligan once more and keep whatever the next look gives, which is the forced
+   tail. The stop distribution sums to exactly 1 and the panel prints every row
+   of it, so the policy is readable rather than inferred from a parameter. */
+function mulliganChain(p, maxMulls, handSize){
+  const h = Math.max(0, Math.floor(handSize==null ? 7 : handSize));
+  const P = Math.max(0, Math.min(1, +p||0));
+  const M = Math.max(0, Math.min(Math.max(0,h-1), Math.floor(+maxMulls||0)));
+  const stops = [];
+  let pKeep = 0, eCards = 0, eMulls = 0;
+  for(let j=0;j<=M;j++){
+    const pj = Math.pow(1-P, j) * P;
+    const size = Math.max(0, h-j);
+    stops.push({look:j, mulligans:j, p:pj, handSize:size, forced:false});
+    pKeep += pj; eCards += pj*size; eMulls += pj*j;
+  }
+  const pf = Math.pow(1-P, M+1);
+  const fSize = Math.max(0, h-(M+1));
+  stops.push({look:M+1, mulligans:M+1, p:pf, handSize:fSize, forced:true});
+  eCards += pf*fSize; eMulls += pf*(M+1);
+  return {p:P, maxMulls:M, handSize:h, stops, pGoal:pKeep, pForced:pf, eCards, eMulls};
+}
+
+/* ---- the frontier ---------------------------------------------------------
+
+   A policy is a goal plus how many mulligans you will spend chasing it. Across
+   m = 0..maxMulls, P(you end up with the start you wanted) rises and the
+   expected size of the hand you keep falls. That trade is the actual question,
+   and it is a Pareto frontier: no point on it dominates another.
+
+   There is deliberately NO best policy and no composite score. There is no
+   defensible exchange rate between "has the Axe" and "has six cards instead of
+   five" — the same reason the Compare tab refuses to rank variants. The knee is
+   named, and the choice is left to the player. */
+function goalFrontier(goals, cards, handSize, maxMulls, opts){
+  const h = Math.max(0, Math.floor(handSize==null ? 7 : handSize));
+  const M = Math.max(0, Math.min(Math.max(0,h-1), Math.floor(+maxMulls||0)));
+  const pts = [];
+  (goals||[]).forEach(g=>{
+    const r = pGoalCached(g, cards, h, opts);
+    for(let m=0;m<=M;m++){
+      const ch = mulliganChain(r.p, m, h);
+      pts.push({
+        label: `${g.name} · ${m===0 ? 'no mulligans' : 'up to '+m+' mulligan'+(m===1?'':'s')}`,
+        goalId: g.id, goalName: g.name, mulls: m,
+        p: r.p, pGoal: ch.pGoal, eCards: ch.eCards, method: r.method
+      });
+    }
+  });
+  return pts;
+}
+
+/* The knee of one goal's series: the point furthest from the chord joining its
+   two ends, with both axes normalised over the series' own range so the answer
+   does not depend on whether cards are measured in cards or in sevenths.
+
+   Null for fewer than three points, or when the series is flat in either axis —
+   there is no knee in a straight line, and naming one would be inventing the
+   recommendation this section exists to refuse. */
+function frontierKnee(points){
+  if(!Array.isArray(points) || points.length < 3) return null;
+  const xs = points.map(p=>p.eCards), ys = points.map(p=>p.pGoal);
+  const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+  if(x1-x0 <= 1e-12 || y1-y0 <= 1e-12) return null;
+  const nx = p=>(p.eCards-x0)/(x1-x0), ny = p=>(p.pGoal-y0)/(y1-y0);
+  const a=points[0], b=points[points.length-1];
+  const ax=nx(a), ay=ny(a), bx=nx(b), by=ny(b);
+  const dx=bx-ax, dy=by-ay, len=Math.sqrt(dx*dx+dy*dy);
+  if(len <= 1e-12) return null;
+  let best=-1, bi=null;
+  for(let i=1;i<points.length-1;i++){
+    const d = Math.abs(dy*(nx(points[i])-ax) - dx*(ny(points[i])-ay))/len;
+    if(d > best){ best=d; bi=i; }
+  }
+  return bi==null ? null : {index:bi, point:points[bi], distance:best};
+}
+
+/* Distinct card types SEEN by turn n — an UPPER BOUND on delirium, and labelled
+   as one everywhere it is shown.
+
+   Seeing a type is not putting it in the graveyard. Real delirium needs a play
+   policy, self-mill modelling and fetch sequencing — the same machinery the
+   goldfish's unsequenced land drops have been waiting on — so the honest thing
+   is to ship the bound and say what it is, rather than an optimistic number
+   under a confident label. */
+function pTypesSeenBy(cards, turn, onPlay, want){
+  const seen = cardsSeen(Math.max(1, Math.floor(turn||1)), !!onPlay);
+  const goal = {clauses:[{kind:'types', n:Math.max(1,Math.floor(want||1))}]};
+  const r = pGoalCached(goal, cards, seen);
+  return {p:r.p, seen, method:r.method, upperBound:true};
+}
+
+/* ============================================================
    GOLDFISH
    ============================================================ */
 
