@@ -254,6 +254,79 @@ chk('compare says why', /can’t be applied|not in the maindeck/.test(text($('cm
     text($('cmpOut')).slice(0, 200));
 clean('compare, broken variant', $('cmpOut').innerHTML);
 
+group('the unresolved banner is not something you can scroll past');
+{
+  /* The reported complaint: the left-column panel was correct and easy to miss,
+     which is a bad combination for a warning that understates every figure.
+
+     Back to the maindeck first — the previous group left a BROKEN variant
+     selected, and a broken variant carries the analysis shape empty, so its
+     unresolved list is legitimately empty too. */
+  click($('vbar').querySelector('.vchip[data-v=""]'));
+  /* Into the MAINDECK, not appended — LIST ends with a Sideboard block, and
+     appending would put the card there, where A.unknown correctly ignores it. */
+  $('list').value = LIST.replace('4 Trick {1}{R}', '4 Totally Unknown Card');
+  fire($('list'), 'input');
+  const b = $('ubanner');
+  chk('a banner appears above the tabs', /not recognised/.test(text(b)), text(b).slice(0, 120));
+  chk('it names the card', /Totally Unknown Card/.test(text(b)));
+  chk('it states the consequence', /understated/.test(text(b)));
+  chk('and it is above the panels, not below them',
+      b.compareDocumentPosition($('tabs')) & 4);
+  clean('unresolved banner', b.innerHTML);
+
+  $('list').value = LIST;
+  fire($('list'), 'input');
+  chk('and it goes away when everything resolves', $('ubanner').innerHTML === '');
+}
+
+group('the resolution dialog');
+{
+  /* Driven directly rather than through lookup(), because lookup() is the one
+     path in the app that touches the network and dom.test.js runs offline. */
+  const report = {
+    renamed: [{ typed: 'Giantcraft Helm', actual: "Doc Ock's Tentacles", set: 'OM1' }],
+    suggested: [{ typed: 'Guied', guess: 'Guide', set: 'ZEN' }],
+    ambiguous: [],
+    missing: ['Total Nonsense'],
+  };
+  chk('it starts hidden', $('rmodal').classList.contains('hide'));
+  w.showResolveDialog(report);
+  chk('showing it reveals the modal', !$('rmodal').classList.contains('hide'));
+  chk('the rename is reported', /Doc Ock/.test(text($('rmodalBody'))));
+  chk('the missing card is reported', /Total Nonsense/.test(text($('rmodalBody'))));
+  clean('resolution dialog', $('rmodalBody').innerHTML);
+
+  /* Accepting a suggestion rewrites the decklist and nothing else. */
+  $('list').value = '4 Guied\n20 Mountain [land:R]';
+  fire($('list'), 'input');
+  w.RESOLVE_REPORT = { renamed: [], suggested: [{ typed: 'Guied', guess: 'Guide' }], ambiguous: [], missing: [] };
+  $('rmodalBody').innerHTML = w.resolveDialogHTML(w.RESOLVE_REPORT);
+  const fix = $('rmodalBody').querySelector('.rfix');
+  chk('the accept button carries both names',
+      fix.dataset.from === 'Guied' && fix.dataset.to === 'Guide');
+  w.acceptSuggestion(fix.dataset.from, fix.dataset.to);
+  chk('the decklist text is rewritten', $('list').value.startsWith('4 Guide\n'),
+      JSON.stringify($('list').value.slice(0, 30)));
+  chk('and the rest of the list is untouched', /20 Mountain \[land:R\]/.test($('list').value));
+
+  w.showResolveDialog(report);
+  click($('rmodalX'));
+  chk('the X closes it', $('rmodal').classList.contains('hide'));
+  w.showResolveDialog(report);
+  click($('rmodalBackdrop'));
+  chk('the backdrop closes it', $('rmodal').classList.contains('hide'));
+  w.showResolveDialog(report);
+  d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  chk('Escape closes it', $('rmodal').classList.contains('hide'));
+
+  /* A lookup with nothing to say must never interrupt. */
+  w.showResolveDialog({ renamed: [], suggested: [], ambiguous: [], missing: [] });
+  chk('a clean lookup opens no dialog', $('rmodal').classList.contains('hide'));
+  w.showResolveDialog(null);
+  chk('and neither does a null report', $('rmodal').classList.contains('hide'));
+}
+
 group('nothing threw along the way');
 chk('no javascript errors during the whole run', jsErrors.length === 0, jsErrors.join(' | '));
 

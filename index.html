@@ -450,6 +450,49 @@ table.cmp td.cbroken{color:var(--dim2)}
 .glknee{font-size:12px;color:var(--dim);line-height:1.65;margin-top:var(--s3);
   padding-left:var(--s3);border-left:2px solid var(--edge-str)}
 
+/* ---- unresolved banner and the resolution dialog ----
+   No new colour values: --bad/--warn/--good/--acc and the nested --panel2 well,
+   all already solved against these surfaces. */
+.ubanner{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;
+  padding:var(--s3) var(--s4);margin-bottom:var(--s3);border-radius:var(--r2);
+  background:rgba(255,107,98,.09);border:1px solid rgba(255,107,98,.32)}
+.ubanner b{font-size:12.5px;color:var(--bad);font-weight:650;flex:none}
+.ubanner span{font-size:11.5px;color:var(--dim);line-height:1.55;flex:1;min-width:200px}
+.ubanner button{flex:none}
+
+.rmodal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  padding:var(--s5)}
+.rbackdrop{position:absolute;inset:0;background:rgba(4,6,10,.62);backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px)}
+.rdialog{position:relative;width:min(680px,100%);max-height:min(84vh,760px);display:flex;
+  flex-direction:column;background:var(--g1);border:1px solid var(--edge-str);
+  border-radius:var(--r3);box-shadow:var(--sh2);backdrop-filter:blur(18px) saturate(160%);
+  -webkit-backdrop-filter:blur(18px) saturate(160%);
+  animation:rise var(--d-slow) var(--ease-out) both}
+.rhead{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);
+  padding:var(--s4) var(--s5);border-bottom:1px solid var(--line)}
+.rhead h2{margin:0}
+.rhead .gx{position:static}
+.rbody{padding:var(--s3) var(--s5);overflow-y:auto;overscroll-behavior:contain}
+.rfoot{padding:var(--s3) var(--s5) var(--s4);border-top:1px solid var(--line);
+  display:flex;justify-content:flex-end}
+.rsect{padding:var(--s4) 0;border-bottom:1px solid var(--line)}
+.rsect:last-child{border-bottom:none}
+.rsect h3{margin:0 0 var(--s2);font-size:12.5px}
+.rsect h3.rok{color:var(--good)}.rsect h3.rwarn{color:var(--warn)}.rsect h3.rbad{color:var(--bad)}
+.rsect p{margin:0 0 var(--s3);font-size:12px;color:var(--dim);line-height:1.65}
+.rrow{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;padding:7px 10px;
+  margin-bottom:5px;border-radius:var(--r1);background:var(--panel2);border:1px solid var(--edge)}
+.rtyped{font-size:12.5px;font-weight:650;color:var(--tx)}
+.rarrow{color:var(--dim2);font-size:12px}
+.ractual{font-size:12.5px;color:var(--acc)}
+.rset{font-size:10px;letter-spacing:.06em;color:var(--dim2);border:1px solid var(--edge);
+  border-radius:var(--rp);padding:1px 7px}
+.rnote{font-size:11px;color:var(--dim2)}
+.rrow .rfix{margin-left:auto}
+.rhint{font-size:11.5px;color:var(--dim2);line-height:1.7}
+.rhint code{font-size:11px}
+
 /* ---- scrollbars ---- */
 *::-webkit-scrollbar{width:11px;height:11px}
 *::-webkit-scrollbar-track{background:transparent}
@@ -581,6 +624,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
 
   <!-- ============ RIGHT: PANELS ============ -->
   <div>
+    <div id="ubanner"></div>
     <div id="vbar" class="vbar"></div>
     <div class="tabs" id="tabs">
       <button data-t="verdict" class="on">Verdict</button>
@@ -785,6 +829,20 @@ Then click “Look up costs (Scryfall)” above."></textarea>
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- Card resolution dialog. Shown after a Scryfall lookup that had anything to
+     report; the left-column panel alone was too easy to scroll past. -->
+<div id="rmodal" class="rmodal hide" role="dialog" aria-modal="true" aria-labelledby="rmodalTitle">
+  <div class="rbackdrop" id="rmodalBackdrop"></div>
+  <div class="rdialog">
+    <div class="rhead">
+      <h2 id="rmodalTitle">Card lookup</h2>
+      <button class="gx" id="rmodalX" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="rbody" id="rmodalBody"></div>
+    <div class="rfoot"><button id="rmodalOk" class="primary">Done</button></div>
   </div>
 </div>
 
@@ -1069,27 +1127,264 @@ function sourcesFor(col, turn, lands, enablers, N, onPlay, spell){
   return {full, frac, total:full+frac, weight, restricted};
 }
 
+/* Fold a card name to a key that survives the ways people actually type it.
+
+   Two normalisations, both verified against the real failures rather than
+   imagined. Diacritics: nobody types "Dáin's Company" or "Kíli the Resourceful"
+   with the accent, and Scryfall's own collection endpoint folds them happily —
+   so the tool has to fold them too, or a card the API RESOLVED is filed under a
+   key the parser will never ask for. Curly punctuation: Moxfield and Arena
+   exports emit U+2019 for apostrophes, so "Dain’s" and "Dain's" must agree.
+
+   This is a KEY, not a display name. Nothing user-facing is ever built from it. */
+function foldKey(name){
+  return String(name||'')
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   // é -> e, í -> i, á -> a
+    .replace(/[‘’ʼ]/g, "'")             // curly apostrophes
+    .replace(/[‐-―]/g, '-')                  // en/em dashes
+    .replace(/æ/g,'ae').replace(/Æ/g,'ae')   // ligatures do not decompose
+    .replace(/œ/g,'oe').replace(/Œ/g,'oe')
+    .replace(/\s+/g, ' ')
+    .trim().toLowerCase();
+}
+
+/* The folded view of DB, derived rather than stored.
+
+   Derived for one reason: DB is what travels to localStorage and back, so an
+   index built alongside it would need rebuilding at every load, import and
+   cache restore, and the one path someone forgets is the one that silently
+   stops resolving accents. Memoised on DB identity, exactly like parseDeckCached.
+
+   COLLISIONS ARE REFUSED. If two different cards fold to the same key the slot
+   is emptied rather than pointed at whichever was indexed last — resolving a
+   name to an arbitrary one of two cards is the confident-wrong-answer this
+   codebase keeps meeting. An exact match still works for both. */
+let FOLD_IDX=null, FOLD_SRC=null;
+function foldIndex(){
+  if(FOLD_SRC===DB && FOLD_IDX) return FOLD_IDX;
+  const idx=Object.create(null);
+  const db=DB||{};
+  for(const k of Object.keys(db)){
+    const f=foldKey(k), rec=db[k];
+    if(!(f in idx)) idx[f]=rec;
+    else if(idx[f]!==rec) idx[f]=null;      // two different cards want this key
+  }
+  FOLD_SRC=DB; FOLD_IDX=idx;
+  return idx;
+}
+
+/* The ONE place a card name is turned into a DB record.
+
+   Exact match first, folded match second. The fold only ever rescues a MISS, so
+   it can never redirect a name that already resolved — which is what keeps the
+   collision guard above from mattering to anyone who spells the card properly. */
+function dbLookup(name){
+  const db = DB || {};
+  const exact = db[String(name||'').trim().toLowerCase()];
+  if(exact) return exact;
+  return foldIndex()[foldKey(name)] || null;
+}
+
+/* Every name one Scryfall card should answer to.
+
+   `printed_name` is the field that makes Arena decklists work. On Through the
+   Omenpaths — the Arena release of the Spider-Man set — 138 of the first 175
+   cards carry a different printed name from their oracle name: OM1 #167 is
+   `name: "Doc Ock's Tentacles"`, `printed_name: "Giantcraft Helm"`. It is also
+   what a non-English printing carries. Verified against the live API, not
+   assumed; it is not documented as an English-card field. */
+function cardKeys(cd){
+  const out=[];
+  const push=n=>{ const s=String(n||'').trim(); if(s) out.push(s.toLowerCase()); };
+  push(cd.name); push(cd.printed_name);
+  (cd.card_faces||[]).forEach(f=>{ push(f.name); push(f.printed_name); });
+  return [...new Set(out)];
+}
+
+/* One Scryfall card object -> one DB record.
+
+   This lived inside lookup() in the SCRYFALL section, which tests/extract.js
+   cannot reach because that section touches the network — so none of it had
+   ever been under test, including the front-face type line rule that three
+   separate bugs have turned on. The house rule says logic that needs a
+   regression test belongs in PARSING. It does now. */
+function cardRecord(cd){
+  const face = cd.card_faces && !cd.mana_cost ? cd.card_faces[0] : cd;
+  const frontFace = (cd.card_faces && cd.card_faces[0]) || cd;
+  const {isLand, backLand} = landFaces(cd);
+  const txt=((face.oracle_text||'')+' '+(cd.oracle_text||'')).toLowerCase();
+  const oracle=cd.oracle_text||face.oracle_text||'';
+  /* Type line comes from the FRONT face.
+
+     A card in the library, in hand, or being cast has its front face's
+     characteristics, and Scryfall's combined type line quietly breaks anything
+     that pattern-matches on it. Tony Stark // The Invincible Iron Man reads
+     "Legendary Creature — Human Artificer Hero // Legendary Artifact Creature —
+     Human Hero", so an /artifact/ test says yes and Castle Doom's artifact-only
+     mana appears to pay for a creature spell it cannot cast. Same class of error
+     let "Sorcery // Land" match a land filter in the payoff matcher, and would
+     make cardTypes read a back face as a card type in your opening hand. */
+  const typeLine=frontFace.type_line||cd.type_line||'';
+  const subtypes=(typeLine.split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
+  const pc=parseCost(face.mana_cost||cd.mana_cost||'');
+  return {
+    land:isLand, produces:(cd.produced_mana||[]).filter(x=>COLORS.includes(x)),
+    // For an MDFC the land is the BACK face, so read that face's text — it
+    // decides whether this counts as a tapped or untapped MDFC (-0.38 vs -0.74).
+    tapped: isLand ? entersTapped(txt)
+          : backLand ? entersTapped((cd.card_faces[1]||{}).oracle_text||'')
+          : false,
+    cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
+    mdfcLand: !isLand && backLand,
+    typeLine, subtypes,
+    verge: isLand ? parseVerge(oracle) : null,
+    fetch: isLand ? parseFetch(oracle) : null,
+    restriction: isLand ? parseRestriction(oracle) : null,
+    rampdraw: isRampDraw(txt, cd.cmc, isLand)
+  };
+}
+
+/* File one card under every name it answers to. The SAME record object goes
+   under each key, which is what lets foldIndex tell "two spellings of one card"
+   apart from "two different cards" by identity rather than by comparing fields. */
+function indexCard(db, cd){
+  const rec = cardRecord(cd);
+  cardKeys(cd).forEach(k=>{ db[k]=rec; });
+  return rec;
+}
+
+/* ---- the resolution report -------------------------------------------------
+
+   A lookup can end in four different states and they need four different
+   sentences. Lumping them into one "3 cards not recognised" line is what made
+   this invisible: two of those three were cards the tool could have resolved
+   by itself, and the message did not distinguish them from a typo.
+
+     renamed    resolved, but under a name you did not type  (informational)
+     suggested  a guess, not applied, one click to accept
+     ambiguous  matched several cards; refused
+     missing    genuinely not found
+
+   Pure, and in PARSING rather than RENDER, so a broken template literal shows
+   up as a red test instead of the word `undefined` inside a card name. */
+const resolveNoop = r => !r || (!r.renamed.length && !r.suggested.length &&
+                                !r.ambiguous.length && !r.missing.length);
+
+function resolveDialogHTML(report){
+  if(resolveNoop(report)) return '';
+  const r=report;
+  const rows=[];
+
+  if(r.renamed.length) rows.push(`
+    <div class="rsect">
+      <h3 class="rok">Resolved under a different name — ${r.renamed.length} card${r.renamed.length===1?'':'s'}</h3>
+      <p>Scryfall matched ${r.renamed.length===1?'this':'these'} exactly, but under the name printed on a different
+      version of the card — an Arena decklist does this constantly. ${r.renamed.length===1?'It is':'They are'}
+      already counted. Your list is unchanged.</p>
+      ${r.renamed.map(x=>`<div class="rrow"><span class="rtyped">${esc(x.typed)}</span>
+        <span class="rarrow">→</span><span class="ractual">${esc(x.actual)}</span>
+        ${x.set?`<span class="rset">${esc(x.set)}</span>`:''}</div>`).join('')}
+    </div>`);
+
+  if(r.suggested.length) rows.push(`
+    <div class="rsect">
+      <h3 class="rwarn">Did you mean — ${r.suggested.length} card${r.suggested.length===1?'':'s'}</h3>
+      <p>No exact match. ${r.suggested.length===1?'This is a':'These are'} closest guess${r.suggested.length===1?'':'es'},
+      and ${r.suggested.length===1?'it has':'they have'} <b>not</b> been applied — a guess that puts a card you never
+      named into your deck is worse than a card that stays unresolved. Accept ${r.suggested.length===1?'it':'them'}
+      and your decklist text is rewritten.</p>
+      ${r.suggested.map(x=>`<div class="rrow"><span class="rtyped">${esc(x.typed)}</span>
+        <span class="rarrow">→</span><span class="ractual">${esc(x.guess)}</span>
+        ${x.set?`<span class="rset">${esc(x.set)}</span>`:''}
+        <button class="rfix" data-from="${esc(x.typed)}" data-to="${esc(x.guess)}">Use this</button></div>`).join('')}
+      ${r.suggested.length>1?`<div class="row" style="margin-top:var(--s2)"><button id="rFixAll" class="primary">Accept all ${r.suggested.length}</button></div>`:''}
+    </div>`);
+
+  if(r.ambiguous.length) rows.push(`
+    <div class="rsect">
+      <h3 class="rwarn">Matched more than one card — ${r.ambiguous.length}</h3>
+      <p>Refused rather than resolved to an arbitrary one of them. Write the full card name, or pin the cost
+      inline.</p>
+      ${r.ambiguous.map(x=>`<div class="rrow"><span class="rtyped">${esc(x.typed)}</span>
+        <span class="rnote">matched ${x.count} cards</span></div>`).join('')}
+    </div>`);
+
+  if(r.missing.length) rows.push(`
+    <div class="rsect">
+      <h3 class="rbad">Not found — ${r.missing.length} card${r.missing.length===1?'':'s'}</h3>
+      <p><b>These are excluded from every calculation on the page.</b> They still fill slots in your library, so
+      they count toward the deck size and satisfy nothing — every figure is understated until they resolve.</p>
+      ${r.missing.map(n=>`<div class="rrow"><span class="rtyped">${esc(n)}</span></div>`).join('')}
+      <p class="rhint">Fix by correcting the spelling, or annotate the line inline and the tool stops needing
+      Scryfall for it:<br>
+      <code>4 ${esc(r.missing[0])} {2}{R}</code> for a spell ·
+      <code>4 ${esc(r.missing[0])} [land:RG]</code> for a land</p>
+    </div>`);
+
+  return rows.join('');
+}
+
+/* The one-line summary the strip above the tabs carries. Deliberately states
+   the CONSEQUENCE, not the count: "3 cards unresolved" is a fact nobody acts
+   on, and this panel's whole problem was being too easy to scroll past. */
+function unresolvedBannerHTML(unknown){
+  const n=(unknown||[]).length;
+  if(!n) return '';
+  const shown=unknown.slice(0,3).map(esc).join(', ');
+  return `<div class="ubanner">
+    <b>${n} card${n===1?'':'s'} not recognised</b>
+    <span>${shown}${n>3?` and ${n-3} more`:''} — excluded from every figure on this page, so all of them are
+    understated.</span>
+    <button id="ubFix">Look up costs</button></div>`;
+}
+
+/* Pull the quantity, name and inline overrides out of one decklist line.
+
+   Factored out of parseList so `renameInList` can find exactly the span
+   parseList calls the name. Two copies of this extraction would be two
+   different opinions about where a card's name ends, and the "accept this
+   suggestion" button would rewrite a line the parser then read differently. */
+function parseEntry(raw){
+  const line = String(raw||'').trim();
+  if(!line || line.startsWith('//') || line.startsWith('#')) return null;
+  if(/^(sideboard|deck|maybeboard|commander)\b/i.test(line)) return null;
+  const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
+  if(!m) return null;
+  let rest = m[2].trim();
+
+  let landTag=null, costTag=null;
+  rest = rest.replace(/\[land:([WUBRGC]*)\]/i, (_,c)=>{ landTag=c.toUpperCase(); return ''; });
+  const cm = rest.match(/(\{[^}]+\}\s*)+$/);
+  if(cm){ costTag = cm[0].trim(); rest = rest.slice(0, cm.index); }
+  rest = rest.replace(/\([^)]*\)\s*[\w-]*$/,'').trim();   // strip set codes
+  const name = rest.trim();
+  if(!name) return null;
+  return {qty:+m[1], name, landTag, costTag};
+}
+
+/* Rewrite one card's name throughout a list, preserving everything else on the
+   line — quantity, set code, inline cost or land tag. Used by the resolution
+   dialog's "use this" button, which is the only thing in the tool that edits
+   the user's own text, so it changes as little of it as it can. */
+function renameInList(text, from, to){
+  const k = foldKey(from);
+  if(!k || !String(to||'').trim()) return String(text||'');
+  return String(text||'').split('\n').map(raw=>{
+    const e = parseEntry(raw);
+    if(!e || foldKey(e.name)!==k) return raw;
+    const i = raw.indexOf(e.name);
+    return i<0 ? raw : raw.slice(0,i) + to + raw.slice(i+e.name.length);
+  }).join('\n');
+}
+
 function parseList(text){
   const out=[], unknown=[];
   for(let raw of text.split('\n')){
-    let line = raw.trim();
-    if(!line || line.startsWith('//') || line.startsWith('#')) continue;
-    if(/^(sideboard|deck|maybeboard|commander)\b/i.test(line)) continue;
-    const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
-    if(!m) continue;
-    const qty = +m[1];
-    let rest = m[2].trim();
+    const e = parseEntry(raw);
+    if(!e) continue;
+    const {qty, name, landTag, costTag} = e;
 
-    // inline overrides
-    let landTag=null, costTag=null;
-    rest = rest.replace(/\[land:([WUBRGC]*)\]/i, (_,c)=>{ landTag=c.toUpperCase(); return ''; });
-    const cm = rest.match(/(\{[^}]+\}\s*)+$/);
-    if(cm){ costTag = cm[0].trim(); rest = rest.slice(0, cm.index); }
-    rest = rest.replace(/\([^)]*\)\s*[\w-]*$/,'').trim();   // strip set codes
-    const name = rest.trim();
-    if(!name) continue;
-
-    const rec = DB[name.toLowerCase()];
+    const rec = dbLookup(name);
     let card;
     if(landTag!==null){
       card={name,qty,land:true,produces:landTag.split('').filter(c=>COLORS.includes(c)),tapped:false,cmc:0,pips:{W:0,U:0,B:0,R:0,G:0},src:'inline'};
@@ -3839,7 +4134,7 @@ function render(){
   renderConflicts(A); renderGlance(A);
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
   renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
-  renderPayoffs(A); renderUnresolved(A); renderMethod(A);
+  renderPayoffs(A); renderUnresolved(A); renderUnresolvedBanner(A); renderMethod(A);
   renderGoalEditor(A);
   renderConsistency(A);
   renderCompare();
@@ -3933,6 +4228,47 @@ function renderSideboard(A){
     <div class="row" style="margin-top:var(--s3)"><button id="vAddSwap">+ Add swap</button></div>
     <div class="vnet${netClass}">${netText}</div>
     ${r.problems.map(p=>`<div class="flag${p.level==='error'?' bad':''}">${esc(p.msg)}</div>`).join('')}`;
+}
+
+/* ---------- card resolution ------------------------------------------------
+
+   The unresolved panel in the left column has always been correct and always
+   been easy to scroll past, which is a bad combination for a warning that
+   invalidates every figure on the page. Two changes: a strip above the tabs
+   that is present the whole time anything is unresolved, and a dialog after a
+   lookup that says what happened rather than only what failed. */
+function renderUnresolvedBanner(A){
+  $('ubanner').innerHTML = unresolvedBannerHTML(A.unknown);
+}
+
+/* The report currently on screen. Session-only and absent from snapshotState by
+   design: it describes one lookup, not the build. */
+let RESOLVE_REPORT=null;
+
+function showResolveDialog(report){
+  if(resolveNoop(report)) return;          // nothing to say: never interrupt
+  RESOLVE_REPORT = report;
+  $('rmodalBody').innerHTML = resolveDialogHTML(report);
+  $('rmodal').classList.remove('hide');
+  const ok=$('rmodalOk'); if(ok && ok.focus) ok.focus();
+}
+function closeResolveDialog(){
+  $('rmodal').classList.add('hide');
+  $('rmodalBody').innerHTML='';
+  RESOLVE_REPORT=null;
+}
+
+/* Accepting a suggestion rewrites the user's own text — the only thing in the
+   tool that does — so it changes exactly the name and nothing else on the line,
+   and it re-runs the lookup so the accepted card actually resolves rather than
+   sitting there newly spelled and still unknown. */
+function acceptSuggestion(from, to){
+  $('list').value = renameInList($('list').value, from, to);
+  PD_VAL=null;
+  if(RESOLVE_REPORT)
+    RESOLVE_REPORT.suggested = RESOLVE_REPORT.suggested.filter(s=>foldKey(s.typed)!==foldKey(from));
+  render(); markDirty();
+  return RESOLVE_REPORT && RESOLVE_REPORT.suggested.length===0;
 }
 
 /* ---------- goals and consistency ----------------------------------------- */
@@ -4308,9 +4644,14 @@ function renderUnresolved(A){
     return;
   }
   if(!A.unknown.length){ $('unresolved').innerHTML='<div class="mini">All cards resolved.</div>'; return; }
-  $('unresolved').innerHTML = `<div class="flag"><b>${A.unknown.length} card(s) not recognised.</b> They are excluded from every calculation.
-    Click “Look up costs (Scryfall)”, or annotate them inline.</div>` +
-    A.unknown.slice(0,20).map(n=>`<div class="mini" style="padding:3px 0">· ${n}</div>`).join('');
+  const n=A.unknown.length;
+  $('unresolved').innerHTML =
+    `<div class="flag bad"><b>${n} card${n===1?'':'s'} not recognised.</b> ${n===1?'It is':'They are'} excluded from
+     every calculation on this page, so every figure is understated — ${n===1?'it':'they'} still fill${n===1?'s':''}
+     a slot in the library and satisfy nothing. Click “Look up costs (Scryfall)”, or annotate the
+     line${n===1?'':'s'} inline.</div>` +
+    A.unknown.slice(0,20).map(n=>`<div class="mini" style="padding:3px 0">· ${esc(n)}</div>`).join('') +
+    (n>20?`<div class="mini" style="padding:3px 0">…and ${n-20} more</div>`:'');
 }
 
 function renderMethod(A){
@@ -4692,6 +5033,11 @@ async function lookup(){
   const d=parseDeck($('list').value);
   const names=[...new Set([...d.cards, ...d.side].map(c=>c.name))];
   if(!names.length) return;
+  /* What the lookup did that the user did not ask for, and what it could not do
+     at all. Built here rather than derived afterwards, because only this
+     function knows WHY a name resolved — after it returns, a card matched under
+     its Arena printed name is indistinguishable from one that matched exactly. */
+  const report={renamed:[], suggested:[], ambiguous:[], missing:[]};
   btn.textContent='Looking up…'; btn.disabled=true;
   try{
     for(let i=0;i<names.length;i+=75){
@@ -4704,43 +5050,73 @@ async function lookup(){
       });
       if(r.status===429){ btn.textContent='Rate limited — wait a moment'; break; }
       const j=await r.json();
-      (j.data||[]).forEach(cd=>{
-        const face = cd.card_faces && !cd.mana_cost ? cd.card_faces[0] : cd;
-        const frontFace = (cd.card_faces && cd.card_faces[0]) || cd;
-        const {isLand, backLand} = landFaces(cd);
-        const txt=((face.oracle_text||'')+' '+(cd.oracle_text||'')).toLowerCase();
-        const oracle=cd.oracle_text||face.oracle_text||'';
-        /* Type line comes from the FRONT face.
+      (j.data||[]).forEach(cd=>indexCard(DB, cd));
+    }
+    FOLD_SRC=null;                  // DB moved; the folded view must be rebuilt
 
-           A card in the library, in hand, or being cast has its front face's
-           characteristics, and Scryfall's combined type line quietly breaks
-           anything that pattern-matches on it. Tony Stark // The Invincible Iron
-           Man reads "Legendary Creature — Human Artificer Hero // Legendary
-           Artifact Creature — Human Hero", so an /artifact/ test says yes and
-           Castle Doom's artifact-only mana appears to pay for a creature spell
-           it cannot cast. Same class of error let "Sorcery // Land" match a
-           land filter in the payoff matcher. */
-        const typeLine=frontFace.type_line||cd.type_line||'';
-        const subtypes=(typeLine.split('—')[1]||'').trim().split(/\s+/).filter(Boolean);
-        const pc=parseCost(face.mana_cost||cd.mana_cost||'');
-        DB[cd.name.toLowerCase()]={
-          land:isLand, produces:(cd.produced_mana||[]).filter(x=>COLORS.includes(x)),
-          // For an MDFC the land is the BACK face, so read that face's text —
-          // it decides whether this counts as a tapped or untapped MDFC (-0.38 vs -0.74).
-          tapped: isLand ? entersTapped(txt)
-                : backLand ? entersTapped((cd.card_faces[1]||{}).oracle_text||'')
-                : false,
-          cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
-          mdfcLand: !isLand && backLand,
-          typeLine,
-          subtypes, verge: isLand ? parseVerge(oracle) : null,
-          fetch: isLand ? parseFetch(oracle) : null,
-          restriction: isLand ? parseRestriction(oracle) : null,
-          rampdraw: isRampDraw(txt, cd.cmc, isLand)
-        };
-        // also key the front-face name for MDFCs / split cards
-        if(cd.card_faces) cd.card_faces.forEach(f=>{ if(f.name) DB[f.name.toLowerCase()]=DB[cd.name.toLowerCase()]; });
-      });
+    /* ---- second pass: names the collection endpoint could not match --------
+
+       The collection endpoint matches oracle names only, so an Arena decklist
+       is full of names it has never heard of — "Giantcraft Helm" is Through the
+       Omenpaths' printed name for "Doc Ock's Tentacles", and 138 of the first
+       175 cards in that set are renamed the same way. Scryfall's SEARCH index
+       does cover printed names, so `!"name"` finds them.
+
+       `!"..."` is an exact match, not a guess: one result is Scryfall stating
+       that this printed name belongs to that card, and for everything this tool
+       computes the two are the same card. More than one result is ambiguous and
+       is refused rather than resolved to an arbitrary half of it. */
+    const stillMissing = () => {
+      const d2=parseDeck($('list').value);
+      return [...new Set([...d2.cards, ...d2.side].filter(c=>c.unknown).map(c=>c.name))];
+    };
+    PD_VAL=null;
+    for(const nm of stillMissing()){
+      await new Promise(r=>setTimeout(r,120));
+      try{
+        const q=encodeURIComponent('!"'+scryfallName(nm).replace(/"/g,'')+'"');
+        const rs=await fetch(`https://api.scryfall.com/cards/search?q=${q}&include_extras=true`);
+        if(rs.status===429){ btn.textContent='Rate limited — wait a moment'; break; }
+        if(!rs.ok) continue;
+        const js=await rs.json();
+        const hits=js.data||[];
+        const ids=[...new Set(hits.map(c=>c.oracle_id))];
+        if(ids.length!==1){
+          if(hits.length) report.ambiguous.push({typed:nm, count:hits.length});
+          continue;
+        }
+        const cd=hits[0];
+        indexCard(DB, cd);
+        DB[nm.toLowerCase()]=DB[cd.name.toLowerCase()];   // answer to what was typed, too
+        FOLD_SRC=null; PD_VAL=null;
+        if(foldKey(cd.name)!==foldKey(nm))
+          report.renamed.push({typed:nm, actual:cd.name, set:(cd.set||'').toUpperCase()});
+      }catch(e){ console.warn('printed-name lookup failed for', nm, e); }
+    }
+
+    /* ---- third pass: suggestions, never applied ---------------------------
+
+       Fuzzy matching is a genuine guess — it will happily turn a name it does
+       not know into the nearest thing it does. So it produces a SUGGESTION with
+       a button, and nothing enters the deck until you press it. Applying a card
+       the user never named is the exact failure this codebase keeps meeting. */
+    PD_VAL=null;
+    const wasAmbiguous=new Set(report.ambiguous.map(a=>foldKey(a.typed)));
+    for(const nm of stillMissing()){
+      /* A name that matched several cards is not a name we are short of ideas
+         about — offering a fuzzy guess on top of "this matched 4 cards" would
+         be two different answers to one question. */
+      if(wasAmbiguous.has(foldKey(nm))) continue;
+      await new Promise(r=>setTimeout(r,120));
+      try{
+        const rf=await fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(scryfallName(nm)));
+        if(rf.status===429) break;
+        if(!rf.ok){ report.missing.push(nm); continue; }
+        const cd=await rf.json();
+        if(cd && cd.name && foldKey(cd.name)!==foldKey(nm))
+          report.suggested.push({typed:nm, guess:cd.name, set:(cd.set||'').toUpperCase()});
+        else report.missing.push(nm);
+      }catch(e){ report.missing.push(nm); }
     }
     /* Auto-fill the ramp/draw count from the MAINDECK only. Karsten's −0.28 term
        counts cheap draw and ramp you are actually playing in game one; counting
@@ -4759,6 +5135,7 @@ async function lookup(){
   }
   setTimeout(()=>{btn.textContent=orig; btn.disabled=false; btn.classList.remove('done');},2200);
   render();
+  showResolveDialog(report);
 }
 
 /* ============================================================
@@ -5036,6 +5413,35 @@ window.addEventListener('beforeunload',e=>{
   if(DIRTY){ e.preventDefault(); e.returnValue=''; }
 });
 $('lookup').addEventListener('click',lookup);
+
+/* Resolution dialog. Bound by delegation because its body is rebuilt each time,
+   and closable three ways — button, backdrop, Escape — because a modal that
+   traps you is worse than the panel it replaced. */
+$('rmodalX').addEventListener('click', closeResolveDialog);
+$('rmodalOk').addEventListener('click', closeResolveDialog);
+$('rmodalBackdrop').addEventListener('click', closeResolveDialog);
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && !$('rmodal').classList.contains('hide')) closeResolveDialog();
+});
+$('rmodalBody').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.id==='rFixAll'){
+    const all=(RESOLVE_REPORT&&RESOLVE_REPORT.suggested||[]).slice();
+    all.forEach(s=>acceptSuggestion(s.typed, s.guess));
+    closeResolveDialog(); lookup(); return;
+  }
+  if(b.classList.contains('rfix')){
+    const done=acceptSuggestion(b.dataset.from, b.dataset.to);
+    /* Re-running the lookup rebuilds the report from scratch, so the dialog is
+       redrawn from the new one rather than patched — the row you just accepted
+       cannot linger, and a name that is STILL unresolved says so again. */
+    if(done){ closeResolveDialog(); lookup(); }
+    else $('rmodalBody').innerHTML = resolveDialogHTML(RESOLVE_REPORT);
+  }
+});
+$('ubanner').addEventListener('click', e=>{
+  if(e.target.id==='ubFix') lookup();
+});
 $('help').addEventListener('click',()=>{
   GUIDE_OFF=false; GUIDE_FORCE=true; saveGuide(); render();
   $('guide').scrollIntoView({behavior:REDUCED?'auto':'smooth',block:'nearest'});
