@@ -4,7 +4,7 @@ Reported by Jeff against one decklist: three cards unrecognised, and the notice
 saying so "too discrete". Two of the three turned out to have nothing to do with
 the cause anyone assumed, including him and including me before I checked.
 
-1176 tests green without jsdom, 1287 with it.
+1209 tests green without jsdom, 1324 with it.
 
 ## The reported symptom
 
@@ -118,6 +118,58 @@ tier 1 resolved:  Dain's Company, Kili the Resourceful
 tier 2 resolved:  Giantcraft Helm  →  Doc Ock's Tentacles (OM1)
 tier 3 suggested: Lightnig Bolt    →  Lightning Bolt      (not applied)
 ```
+
+## The review round, which caught a showstopper
+
+Green at 1176 tests including a jsdom run that drove the whole dialog, and an
+adversarial read of the diff found **five real bugs and five smaller things**.
+One of them would have shipped a completely unusable page.
+
+1. **The dialog was visible on load and could not be closed.** `.hide` is
+   `display:none` at specificity (0,0,1,0); `.rmodal{display:flex}` is declared
+   310 lines later at the *same* specificity, so `class="rmodal hide"` computed
+   to `flex`. A fixed, full-viewport, 62%-opaque blurred overlay covered the app
+   from first paint, and `closeResolveDialog()` added a class that did nothing.
+
+   **Every visibility test passed**, because they all asserted
+   `classList.contains('hide')` — the test and the stylesheet disagreed about
+   what "hidden" means and only the stylesheet talks to the user. `#rmodal` is
+   the first element in the file to combine `.hide` with a class that sets
+   `display`, so nothing had needed the guard before. There is now a boot check
+   that sweeps every `.hide` element for a computed `display:none`.
+
+2. **One rate limit made the tool announce a real deck as entirely missing.**
+   The 429 `break` exited only pass 1; execution fell into passes 2 and 3, which
+   fire one request per card — all also rate-limited — and pass 3 pushed every
+   failure into `missing`. The dialog then said "Not found — 47 cards, excluded
+   from every calculation" about a perfectly good sixty. `report.halted` now
+   stops the remaining passes and says the run could not finish; `missing` is
+   assembled at the end from what is genuinely still unresolved.
+
+3. **`!"name"` is not the single-result endpoint it looks like.** It matches
+   faces too, so `!"Lightning Bolt"` returns two distinct oracle ids and was
+   refused as ambiguous. `searchPrimaries` narrows to whole-name matches. Worth
+   noting the reviewer's proposed fix — dropping `include_extras` — was
+   *incomplete*: I checked it live and it takes three ids down to two, not one.
+   The house rule paid out again; the fix that was verified is not the fix that
+   was suggested.
+
+4. **"Use this" was a no-op on MTGO `SB:` lines, forever.** `splitList` strips
+   the prefix before `parseList`, so the card parses and gets a suggestion, but
+   `renameInList` reads the raw text where the prefix is still there and
+   `parseEntry` rejected it. The row could be clicked indefinitely.
+
+5. **Accepting one of several suggestions left it rewritten but unresolved** —
+   the re-lookup ran only when it was the last one, so the line ended up
+   correctly spelled and still unknown, with the banner blaming it. The comment
+   claimed the behaviour the code did not have.
+
+Plus: the fold index's collision guard compared object identity, which the
+localStorage round trip breaks (it compares oracle ids now); `renameInList`
+searched from index 0 and could rewrite a quantity; `dbLookup` read through
+`Object.prototype`; the button label was corruptible by the new callers; and
+fuzzy returning the name you typed — Scryfall *confirming* the card — was filed
+under "not found".
 
 ## Bugs found by writing the tests
 

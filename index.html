@@ -462,6 +462,12 @@ table.cmp td.cbroken{color:var(--dim2)}
 
 .rmodal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
   padding:var(--s5)}
+/* .hide and .rmodal have EQUAL specificity, and .rmodal is declared later, so
+   `class="rmodal hide"` computes to display:flex and the dialog covers the page
+   from first paint. Every other .hide element in this file sits on a bare
+   display:block, which is why nothing has needed this before. Asserting on the
+   class rather than the computed style cannot see it. */
+.rmodal.hide{display:none}
 .rbackdrop{position:absolute;inset:0;background:rgba(4,6,10,.62);backdrop-filter:blur(3px);
   -webkit-backdrop-filter:blur(3px)}
 .rdialog{position:relative;width:min(680px,100%);max-height:min(84vh,760px);display:flex;
@@ -1164,10 +1170,18 @@ function foldIndex(){
   if(FOLD_SRC===DB && FOLD_IDX) return FOLD_IDX;
   const idx=Object.create(null);
   const db=DB||{};
+  /* "Same card" is compared by oracle id, NOT by object identity.
+
+     Identity holds only until the DB is written to localStorage: the cache goes
+     through JSON, which gives every key its own object, so one card filed under
+     two keys that fold together would come back looking like a collision and
+     empty its own slot. The guard would then be strictest on exactly the deck
+     you had already looked up once. */
+  const same=(a,b)=> a===b || (a && b && a.oracleId && a.oracleId===b.oracleId);
   for(const k of Object.keys(db)){
     const f=foldKey(k), rec=db[k];
     if(!(f in idx)) idx[f]=rec;
-    else if(idx[f]!==rec) idx[f]=null;      // two different cards want this key
+    else if(!same(idx[f], rec)) idx[f]=null;   // two different cards want this key
   }
   FOLD_SRC=DB; FOLD_IDX=idx;
   return idx;
@@ -1180,8 +1194,10 @@ function foldIndex(){
    collision guard above from mattering to anyone who spells the card properly. */
 function dbLookup(name){
   const db = DB || {};
-  const exact = db[String(name||'').trim().toLowerCase()];
-  if(exact) return exact;
+  /* hasOwnProperty, not a bare read: DB is a plain object, so `constructor` and
+     `toString` would otherwise come back as truthy "records" with no pips. */
+  const k = String(name||'').trim().toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(db, k)) return db[k];
   return foldIndex()[foldKey(name)] || null;
 }
 
@@ -1236,6 +1252,9 @@ function cardRecord(cd){
           : false,
     cmc: cd.cmc!=null?cd.cmc:pc.cmc, pips:pc.pips, cost:face.mana_cost||cd.mana_cost||'',
     mdfcLand: !isLand && backLand,
+    /* Carried so foldIndex can tell "one card under two spellings" from "two
+       cards" after a localStorage round trip has broken object identity. */
+    oracleId: cd.oracle_id||null,
     typeLine, subtypes,
     verge: isLand ? parseVerge(oracle) : null,
     fetch: isLand ? parseFetch(oracle) : null,
@@ -1244,13 +1263,56 @@ function cardRecord(cd){
   };
 }
 
-/* File one card under every name it answers to. The SAME record object goes
-   under each key, which is what lets foldIndex tell "two spellings of one card"
-   apart from "two different cards" by identity rather than by comparing fields. */
-function indexCard(db, cd){
+/* File one card under every name it answers to, plus any extra alias the caller
+   knows about — the printed-name pass adds the name the user actually typed,
+   which may differ from both `name` and `printed_name`.
+
+   The SAME record object goes under each key, which is what lets foldIndex tell
+   "two spellings of one card" apart from "two different cards" by identity
+   rather than by comparing fields.
+
+   It invalidates the folded view ITSELF rather than trusting callers to
+   remember. DB is mutated in place here, so the identity memo cannot notice —
+   and an index that is stale in exactly the case it exists for is worse than no
+   index. Structural, for the same reason libraryState subtracts rather than
+   reading the shuffled order's tail. */
+function indexCard(db, cd, alias){
   const rec = cardRecord(cd);
-  cardKeys(cd).forEach(k=>{ db[k]=rec; });
+  const keys = cardKeys(cd).concat(
+    (alias||[]).map(a=>String(a||'').trim().toLowerCase()).filter(Boolean));
+  [...new Set(keys)].forEach(k=>{ db[k]=rec; });
+  if(db===DB) FOLD_SRC=null;
   return rec;
+}
+
+/* Narrow a `!"name"` search to the cards actually CALLED that.
+
+   `!"..."` matches any name a printing carries, including a face of a split or
+   an alternative layout, so it is not the single-result endpoint it looks like.
+   Verified live: `!"Lightning Bolt"` returns TWO distinct oracle ids even with
+   `include_extras` off, because "Emeritus of Conflict // Lightning Bolt" has a
+   face by that name; with extras on it returns three. Refusing all of those as
+   ambiguous would break the common case to protect the rare one.
+
+   So a hit is PRIMARY when the card's own WHOLE name — `name` or `printed_name`,
+   not a face — folds equal to what was typed. That distinction is the whole
+   trick, and it is why this cannot reuse `cardKeys`: the DB indexes face names
+   on purpose, so "4 Fire" resolves Fire // Ice, but a card with a face called
+   Lightning Bolt is not *called* Lightning Bolt.
+
+   Verified live. `!"Lightning Bolt"` → 2 oracle ids, 1 primary → resolves.
+   `!"Giantcraft Helm"` → 1, primary via printed_name → resolves. `!"Fire"` →
+   1 hit and 0 primaries (the card is called "Fire // Ice"), so the fallback
+   below keeps it working. Only a name that two different cards genuinely carry
+   stays ambiguous, and that is refused. */
+function cardTopNames(cd){
+  return [cd && cd.name, cd && cd.printed_name]
+    .map(n=>String(n||'').trim()).filter(Boolean);
+}
+function searchPrimaries(hits, typed){
+  const want = foldKey(typed);
+  const primary = (hits||[]).filter(c => cardTopNames(c).some(n => foldKey(n)===want));
+  return primary.length ? primary : (hits||[]);
 }
 
 /* ---- the resolution report -------------------------------------------------
@@ -1267,13 +1329,30 @@ function indexCard(db, cd){
 
    Pure, and in PARSING rather than RENDER, so a broken template literal shows
    up as a red test instead of the word `undefined` inside a card name. */
-const resolveNoop = r => !r || (!r.renamed.length && !r.suggested.length &&
+const resolveNoop = r => !r || (!r.halted && !r.renamed.length && !r.suggested.length &&
                                 !r.ambiguous.length && !r.missing.length);
 
 function resolveDialogHTML(report){
   if(resolveNoop(report)) return '';
   const r=report;
   const rows=[];
+
+  /* A run that could not finish says so, and says nothing else about your deck.
+
+     Without this, one 429 on the first batch cascaded: the remaining passes each
+     fired a request per card, every one of them also rate-limited, and the
+     dialog announced a perfectly real sixty-card deck as "Not found — 47 cards,
+     excluded from every calculation". A confident wrong answer produced by a
+     network hiccup is exactly what this file's house rules exist to stop. */
+  if(r.halted) rows.push(`
+    <div class="rsect">
+      <h3 class="rwarn">Could not finish asking Scryfall</h3>
+      <p>${r.halted==='rate'
+        ? 'Scryfall rate-limited the lookup part-way through.'
+        : 'The connection to Scryfall failed part-way through.'}
+      Anything already resolved is fine and is counted. <b>Nothing below is a verdict about your decklist</b> —
+      cards that had not been asked about yet are simply unknown, not missing. Wait a moment and look up again.</p>
+    </div>`);
 
   if(r.renamed.length) rows.push(`
     <div class="rsect">
@@ -1345,9 +1424,14 @@ function unresolvedBannerHTML(unknown){
    different opinions about where a card's name ends, and the "accept this
    suggestion" button would rewrite a line the parser then read differently. */
 function parseEntry(raw){
-  const line = String(raw||'').trim();
+  let line = String(raw||'').trim();
   if(!line || line.startsWith('//') || line.startsWith('#')) return null;
   if(/^(sideboard|deck|maybeboard|commander)\b/i.test(line)) return null;
+  /* MTGO's per-line sideboard form. splitList strips this prefix before
+     parseList ever sees it, so parseList's behaviour is unchanged — but
+     renameInList reads the RAW text, where the prefix is still there, and
+     without this an "SB: 3 Lightnig Bolt" line silently refuses to be fixed. */
+  line = line.replace(/^SB:\s*/i, '');
   const m = line.match(/^(\d+)\s*x?\s+(.+)$/i);
   if(!m) return null;
   let rest = m[2].trim();
@@ -1372,7 +1456,10 @@ function renameInList(text, from, to){
   return String(text||'').split('\n').map(raw=>{
     const e = parseEntry(raw);
     if(!e || foldKey(e.name)!==k) return raw;
-    const i = raw.indexOf(e.name);
+    /* Search from AFTER the quantity. parseEntry took the name from past it, so
+       a bare indexOf would find "2" inside "2 2" and rewrite the count. */
+    const q = raw.search(/\d/);
+    const i = raw.indexOf(e.name, q<0 ? 0 : q+String(e.qty).length);
     return i<0 ? raw : raw.slice(0,i) + to + raw.slice(i+e.name.length);
   }).join('\n');
 }
@@ -4268,7 +4355,7 @@ function acceptSuggestion(from, to){
   if(RESOLVE_REPORT)
     RESOLVE_REPORT.suggested = RESOLVE_REPORT.suggested.filter(s=>foldKey(s.typed)!==foldKey(from));
   render(); markDirty();
-  return RESOLVE_REPORT && RESOLVE_REPORT.suggested.length===0;
+  return !RESOLVE_REPORT || RESOLVE_REPORT.suggested.length===0;
 }
 
 /* ---------- goals and consistency ----------------------------------------- */
@@ -5024,7 +5111,13 @@ function importPayload(txt){
 /* ============================================================
    SCRYFALL
    ============================================================ */
+let LOOKUP_BUSY=false, LOOKUP_T=null;
 async function lookup(){
+  /* Re-entrancy guard. The lookup button disables itself, but the banner's
+     "Look up costs" and the dialog's "accept all" both call this too, and two
+     runs interleaving would double-count the rate-limit spacing and build two
+     reports racing for one dialog. */
+  if(LOOKUP_BUSY) return;
   const btn=$('lookup'); const orig=btn.textContent;
   /* Maindeck AND sideboard. You cannot evaluate a sideboard plan against a card
      the DB has never heard of, and an MTGO-style "SB: 2 Duress" line does not
@@ -5037,7 +5130,9 @@ async function lookup(){
      at all. Built here rather than derived afterwards, because only this
      function knows WHY a name resolved — after it returns, a card matched under
      its Arena printed name is indistinguishable from one that matched exactly. */
-  const report={renamed:[], suggested:[], ambiguous:[], missing:[]};
+  const report={renamed:[], suggested:[], ambiguous:[], missing:[], halted:null};
+  LOOKUP_BUSY=true;
+  clearTimeout(LOOKUP_T);        // a pending reset from the last run would fight this one
   btn.textContent='Looking up…'; btn.disabled=true;
   try{
     for(let i=0;i<names.length;i+=75){
@@ -5048,11 +5143,10 @@ async function lookup(){
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({identifiers:batch})
       });
-      if(r.status===429){ btn.textContent='Rate limited — wait a moment'; break; }
+      if(r.status===429){ report.halted='rate'; break; }
       const j=await r.json();
-      (j.data||[]).forEach(cd=>indexCard(DB, cd));
+      (j.data||[]).forEach(cd=>indexCard(DB, cd));   // invalidates the fold index itself
     }
-    FOLD_SRC=null;                  // DB moved; the folded view must be rebuilt
 
     /* ---- second pass: names the collection endpoint could not match --------
 
@@ -5071,27 +5165,32 @@ async function lookup(){
       return [...new Set([...d2.cards, ...d2.side].filter(c=>c.unknown).map(c=>c.name))];
     };
     PD_VAL=null;
-    for(const nm of stillMissing()){
+    for(const nm of report.halted ? [] : stillMissing()){
       await new Promise(r=>setTimeout(r,120));
       try{
+        /* No include_extras. It pulls in art series and other non-playable
+           layouts, and `!"Lightning Bolt"` then returns three distinct oracle
+           ids and is refused as ambiguous — manufacturing the exact failure this
+           pass exists to avoid, for most modern cards. It bought nothing:
+           `!"Giantcraft Helm"` returns exactly one result without it. Verified
+           against the live API both ways. */
         const q=encodeURIComponent('!"'+scryfallName(nm).replace(/"/g,'')+'"');
-        const rs=await fetch(`https://api.scryfall.com/cards/search?q=${q}&include_extras=true`);
-        if(rs.status===429){ btn.textContent='Rate limited — wait a moment'; break; }
-        if(!rs.ok) continue;
+        const rs=await fetch(`https://api.scryfall.com/cards/search?q=${q}`);
+        if(rs.status===429){ report.halted='rate'; break; }
+        if(!rs.ok) continue;              // 404 is "no such printed name", not an error
         const js=await rs.json();
-        const hits=js.data||[];
+        const hits=searchPrimaries(js.data||[], nm);
         const ids=[...new Set(hits.map(c=>c.oracle_id))];
         if(ids.length!==1){
-          if(hits.length) report.ambiguous.push({typed:nm, count:hits.length});
+          if(hits.length) report.ambiguous.push({typed:nm, count:ids.length});
           continue;
         }
         const cd=hits[0];
-        indexCard(DB, cd);
-        DB[nm.toLowerCase()]=DB[cd.name.toLowerCase()];   // answer to what was typed, too
-        FOLD_SRC=null; PD_VAL=null;
+        indexCard(DB, cd, [nm]);      // answers to what was typed, too
+        PD_VAL=null;
         if(foldKey(cd.name)!==foldKey(nm))
           report.renamed.push({typed:nm, actual:cd.name, set:(cd.set||'').toUpperCase()});
-      }catch(e){ console.warn('printed-name lookup failed for', nm, e); }
+      }catch(e){ report.halted=report.halted||'network'; console.warn('printed-name lookup failed for', nm, e); break; }
     }
 
     /* ---- third pass: suggestions, never applied ---------------------------
@@ -5102,7 +5201,7 @@ async function lookup(){
        the user never named is the exact failure this codebase keeps meeting. */
     PD_VAL=null;
     const wasAmbiguous=new Set(report.ambiguous.map(a=>foldKey(a.typed)));
-    for(const nm of stillMissing()){
+    for(const nm of report.halted ? [] : stillMissing()){
       /* A name that matched several cards is not a name we are short of ideas
          about — offering a fuzzy guess on top of "this matched 4 cards" would
          be two different answers to one question. */
@@ -5110,13 +5209,32 @@ async function lookup(){
       await new Promise(r=>setTimeout(r,120));
       try{
         const rf=await fetch('https://api.scryfall.com/cards/named?fuzzy='+encodeURIComponent(scryfallName(nm)));
-        if(rf.status===429) break;
-        if(!rf.ok){ report.missing.push(nm); continue; }
+        if(rf.status===429){ report.halted='rate'; break; }
+        if(rf.status===404){ report.missing.push(nm); continue; }   // Scryfall knows of nothing like it
+        if(!rf.ok){ report.halted='network'; break; }
         const cd=await rf.json();
-        if(cd && cd.name && foldKey(cd.name)!==foldKey(nm))
-          report.suggested.push({typed:nm, guess:cd.name, set:(cd.set||'').toUpperCase()});
-        else report.missing.push(nm);
-      }catch(e){ report.missing.push(nm); }
+        if(!cd || !cd.name){ report.missing.push(nm); continue; }
+        if(foldKey(cd.name)===foldKey(nm)){
+          /* Fuzzy returning the name you typed is Scryfall CONFIRMING the card,
+             not failing to find it. Filing that under "not found" was telling
+             the user a card does not exist in the same breath as locating it. */
+          indexCard(DB, cd, [nm]); PD_VAL=null;
+          continue;
+        }
+        report.suggested.push({typed:nm, guess:cd.name, set:(cd.set||'').toUpperCase()});
+      }catch(e){ report.halted='network'; break; }
+    }
+    /* Whatever is still unresolved after three passes, and only if we got to
+       ask about all of it. Built HERE rather than pushed to as we go, so a run
+       cut short by a rate limit cannot report a deck of real cards as missing. */
+    PD_VAL=null;
+    if(!report.halted){
+      const named=new Set([...report.suggested.map(s=>foldKey(s.typed)),
+                           ...report.ambiguous.map(a=>foldKey(a.typed)),
+                           ...report.missing.map(foldKey)]);
+      stillMissing().forEach(nm=>{ if(!named.has(foldKey(nm))) report.missing.push(nm); });
+    } else {
+      report.missing = [];
     }
     /* Auto-fill the ramp/draw count from the MAINDECK only. Karsten's −0.28 term
        counts cheap draw and ramp you are actually playing in game one; counting
@@ -5127,13 +5245,22 @@ async function lookup(){
     const rd=cc.filter(c=>c.rampdraw).reduce((s,c)=>s+c.qty,0);
     if(rd) $('ramp').value=rd;
     STATE.cardCache=DB; persist();   // cache card data so the tool works offline next time
-    btn.textContent='Costs loaded ✓';
-    btn.classList.add('done');
+    if(report.halted){
+      btn.textContent = report.halted==='rate' ? 'Rate limited — wait a moment' : 'Lookup incomplete';
+    } else {
+      btn.textContent='Costs loaded ✓';
+      btn.classList.add('done');
+    }
   }catch(e){
     btn.textContent='Lookup failed — annotate inline';
     console.error(e);
   }
-  setTimeout(()=>{btn.textContent=orig; btn.disabled=false; btn.classList.remove('done');},2200);
+  LOOKUP_BUSY=false;
+  /* Tracked so the next run can cancel it. lookup() is now reachable from the
+     banner and from the dialog as well as the button, and a pending reset from
+     the previous run would restore a stale label mid-run — or capture
+     "Costs loaded ✓" as the label to restore. */
+  LOOKUP_T=setTimeout(()=>{btn.textContent=orig; btn.disabled=false; btn.classList.remove('done');},2200);
   render();
   showResolveDialog(report);
 }
@@ -5431,12 +5558,15 @@ $('rmodalBody').addEventListener('click', e=>{
     closeResolveDialog(); lookup(); return;
   }
   if(b.classList.contains('rfix')){
-    const done=acceptSuggestion(b.dataset.from, b.dataset.to);
-    /* Re-running the lookup rebuilds the report from scratch, so the dialog is
-       redrawn from the new one rather than patched — the row you just accepted
-       cannot linger, and a name that is STILL unresolved says so again. */
-    if(done){ closeResolveDialog(); lookup(); }
-    else $('rmodalBody').innerHTML = resolveDialogHTML(RESOLVE_REPORT);
+    /* ALWAYS re-run, not just on the last one. Rewriting the line does not
+       fetch the card — accept one of three, close the dialog, and that line
+       would sit there correctly spelled and still unresolved, with the banner
+       blaming it and nothing explaining why. The re-run rebuilds the report from
+       scratch, so the accepted row cannot linger and anything still broken says
+       so again. */
+    acceptSuggestion(b.dataset.from, b.dataset.to);
+    closeResolveDialog();
+    lookup();
   }
 });
 $('ubanner').addEventListener('click', e=>{

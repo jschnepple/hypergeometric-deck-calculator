@@ -111,6 +111,29 @@ group('the fold only ever rescues a miss');
   eq('an empty name is null', dbLookup(''), null);
 }
 
+group('the collision guard survives the localStorage round trip');
+
+{
+  /* `indexCard` files one record object under every key, and foldIndex used to
+     tell "one card, two spellings" from "two cards" by object IDENTITY. That
+     holds only until persist() writes DB out: JSON gives every key its own
+     object, so a card whose two keys fold together came back looking like a
+     collision and emptied its own slot — the guard at its strictest on exactly
+     the deck you had already looked up once. It compares oracle ids now. */
+  const twoKeys = {
+    name: "Dáin's Company", printed_name: "Dain's Company", oracle_id: 'abc-123',
+    lang: 'en', mana_cost: '{2}{G}', cmc: 3, type_line: 'Sorcery', oracle_text: '',
+  };
+  freshDB(twoKeys);
+  eq('in session, both spellings resolve', dbLookup("Dain’s Company").cmc, 3);
+
+  DB = JSON.parse(JSON.stringify(DB));          // exactly what persist/loadStore does
+  chk('the round trip really does break identity',
+      DB["dáin's company"] !== DB["dain's company"]);
+  eq('and the fold still resolves it', dbLookup("Dain’s Company").cmc, 3);
+  eq('the oracle id is what carries that', DB["dáin's company"].oracleId, 'abc-123');
+}
+
 group('two different cards folding together are refused, not guessed');
 
 {
@@ -118,8 +141,8 @@ group('two different cards folding together are refused, not guessed');
      to whichever was indexed last would be a confident wrong answer about a
      card the user did name correctly. The slot is emptied instead, and both
      still resolve by their exact spellings. */
-  const A = { name: 'Fóo', lang: 'en', mana_cost: '{R}', cmc: 1, type_line: 'Instant', oracle_text: '' };
-  const B = { name: 'Fòo', lang: 'en', mana_cost: '{G}', cmc: 5, type_line: 'Sorcery', oracle_text: '' };
+  const A = { name: 'Fóo', oracle_id: 'aaa', lang: 'en', mana_cost: '{R}', cmc: 1, type_line: 'Instant', oracle_text: '' };
+  const B = { name: 'Fòo', oracle_id: 'bbb', lang: 'en', mana_cost: '{G}', cmc: 5, type_line: 'Sorcery', oracle_text: '' };
   freshDB(A, B);
   eq('the ambiguous folded key resolves to nothing', dbLookup('Foo'), null);
   eq('but the first spelling still works', dbLookup('Fóo').cmc, 1);
@@ -147,6 +170,36 @@ group('printed_name is a name the card answers to');
   eq('cardKeys lists both names',
      cardKeys(DOC_OCK).sort(), ["doc ock's tentacles", 'giantcraft helm']);
   eq('a card without a printed name lists one', cardKeys(MOUNTAIN), ['mountain']);
+}
+
+{
+  /* The printed-name pass adds the name that was actually TYPED, which can
+     differ from both `name` and `printed_name` — a fold, a curly apostrophe. */
+  DB = {};
+  indexCard(DB, DOC_OCK, ['Giantcraft  Helm ']);
+  eq('an extra alias resolves', dbLookup('giantcraft  helm '), dbLookup('Giantcraft Helm'));
+  eq('an empty alias is ignored', cardKeys(MOUNTAIN).length, 1);
+  DB = {};
+  indexCard(DB, MOUNTAIN, ['', null, '  ']);
+  eq('junk aliases add no keys', Object.keys(DB), ['mountain']);
+}
+
+group('the fold index cannot be left stale');
+
+{
+  /* DB is mutated in place by indexCard, so the identity memo cannot see the
+     change. indexCard invalidates the index ITSELF rather than trusting every
+     caller to remember — an index stale in exactly the case it exists for is
+     worse than no index at all. */
+  DB = {};
+  eq('an empty DB resolves nothing', dbLookup("Dain's Company"), null);
+  indexCard(DB, DAIN);                       // no manual invalidation anywhere
+  chk('a card indexed after the first lookup is found through the fold',
+      dbLookup("Dain's Company") !== null);
+  indexCard(DB, KILI);
+  chk('and so is the next one', dbLookup('Kili the Resourceful') !== null);
+  eq('both, without ever touching FOLD_SRC by hand',
+     [dbLookup("Dain's Company").cmc, dbLookup('Kili the Resourceful').cmc], [3, 2]);
 }
 
 {
@@ -247,6 +300,30 @@ eq('a name that is not there changes nothing',
      parseEntry(renameInList(line, 'Foo', 'Bar')).name, 'Bar');
 }
 
+{
+  /* MTGO's per-line sideboard form. splitList strips the prefix before
+     parseList sees it, so the card IS parsed and IS offered a suggestion — but
+     renameInList reads the raw text, where the prefix is still there. Without
+     the strip in parseEntry the button rewrote nothing, the report still listed
+     the card, and "Use this" could be pressed forever. */
+  eq('an SB: line is recognised', parseEntry('SB: 3 Lightnig Bolt').name, 'Lightnig Bolt');
+  eq('and its quantity', parseEntry('SB: 3 Lightnig Bolt').qty, 3);
+  eq('an SB: line can be rewritten',
+     renameInList('SB: 3 Lightnig Bolt', 'Lightnig Bolt', 'Lightning Bolt'),
+     'SB: 3 Lightning Bolt');
+  eq('lowercase sb: too', renameInList('sb: 2 Foo', 'Foo', 'Bar'), 'sb: 2 Bar');
+  eq('and it still parses afterwards',
+     parseDeck('SB: 3 Lightning Bolt').side.length, 1);
+}
+
+{
+  /* indexOf searched from zero, so a name that also occurs in the quantity got
+     the quantity rewritten instead. No real card triggers it; the fix is one
+     line and the alternative is a corrupted decklist nobody can explain. */
+  eq('a numeric name does not eat the quantity', renameInList('2 2', '2', 'Two'), '2 Two');
+  eq('a name repeating the count is safe', renameInList('4 4th Bridge', '4th Bridge', 'X'), '4 X');
+}
+
 /* ============================================================
    THE DIALOG
    ============================================================ */
@@ -256,7 +333,7 @@ const LEAK = /\bundefined\b|\bNaN\b|\[object/;
 const sweep = (label, html) => chk(label, !LEAK.test(html),
   (html.match(/.{0,60}(undefined|NaN|\[object).{0,60}/) || [''])[0]);
 
-const emptyReport = () => ({ renamed: [], suggested: [], ambiguous: [], missing: [] });
+const emptyReport = () => ({ renamed: [], suggested: [], ambiguous: [], missing: [], halted: null });
 
 {
   chk('nothing to report is a no-op', resolveNoop(emptyReport()));
@@ -333,6 +410,71 @@ const emptyReport = () => ({ renamed: [], suggested: [], ambiguous: [], missing:
   chk('a card name cannot inject markup', !html.includes('<img src=x'));
   chk('nor break out of an attribute', !html.includes('"><b>x'));
   chk('it is escaped instead', html.includes('&lt;img'));
+}
+
+group('a !"name" search is narrowed to cards actually called that');
+
+{
+  /* `!"..."` matches any name a printing carries, including a FACE of a split
+     card, so it is not the single-result endpoint it looks like. Live: it
+     returns two distinct oracle ids for "Lightning Bolt", because "Emeritus of
+     Conflict // Lightning Bolt" has a face by that name. Refusing that as
+     ambiguous would break the common case to protect the rare one.
+
+     The distinction is whole-name vs face, which is exactly why this cannot
+     reuse cardKeys — the DB indexes faces deliberately so "4 Fire" resolves. */
+  const bolt = { name: 'Lightning Bolt', oracle_id: 'bolt', type_line: 'Instant' };
+  const emeritus = {
+    name: 'Emeritus of Conflict // Lightning Bolt', oracle_id: 'emer',
+    type_line: 'Creature // Instant',
+    card_faces: [{ name: 'Emeritus of Conflict' }, { name: 'Lightning Bolt' }],
+  };
+  const hits = [emeritus, bolt];
+  eq('the face match is dropped', searchPrimaries(hits, 'Lightning Bolt').map(c => c.oracle_id), ['bolt']);
+  chk('cardKeys would NOT have dropped it — that is the trap',
+      cardKeys(emeritus).includes('lightning bolt'));
+
+  const docOck = { name: "Doc Ock's Tentacles", printed_name: 'Giantcraft Helm', oracle_id: 'doc' };
+  eq('a printed name is a whole name',
+     searchPrimaries([docOck], 'Giantcraft Helm').map(c => c.oracle_id), ['doc']);
+
+  /* When NOTHING is a whole-name match the hits stand, so a decklist naming one
+     face of a split card still resolves — "4 Fire" finds "Fire // Ice". */
+  const fireIce = { name: 'Fire // Ice', oracle_id: 'fi', card_faces: [{ name: 'Fire' }, { name: 'Ice' }] };
+  eq('a face-only match falls back rather than refusing',
+     searchPrimaries([fireIce], 'Fire').map(c => c.oracle_id), ['fi']);
+
+  /* Two cards genuinely carrying one name stays ambiguous, and is refused. */
+  const a = { name: 'Twin', oracle_id: 'a' }, b = { name: 'Twin', oracle_id: 'b' };
+  eq('a real collision is still two', searchPrimaries([a, b], 'Twin').length, 2);
+  eq('no hits stays no hits', searchPrimaries([], 'Anything'), []);
+  eq('a null hit list is safe', searchPrimaries(null, 'Anything'), []);
+  eq('the fold applies here too',
+     searchPrimaries([{ name: "Dáin's Company", oracle_id: 'd' }], "Dain's Company").length, 1);
+}
+
+group('a run that could not finish says so, and nothing else');
+
+{
+  /* The cascade this prevents: one 429 on the first batch used to fall through
+     into two more passes that fired a request per card, every one also
+     rate-limited, and the dialog announced a real sixty-card deck as
+     "Not found — 47 cards, excluded from every calculation". */
+  const r = Object.assign(emptyReport(), { halted: 'rate' });
+  chk('a halted run is never a no-op, even with nothing else to report',
+      !resolveNoop(r));
+  const html = resolveDialogHTML(r);
+  sweep('the halted notice leaks nothing', html);
+  chk('it names rate limiting', /rate-limited/.test(html));
+  chk('it says what is still trustworthy', /already resolved is fine/.test(html));
+  chk('and refuses to be read as a verdict', /Nothing below is a verdict about your decklist/.test(html));
+
+  const net = Object.assign(emptyReport(), { halted: 'network' });
+  chk('a network failure reads differently', /connection to Scryfall failed/.test(resolveDialogHTML(net)));
+
+  /* Nothing halted and nothing to report stays silent — a dialog after every
+     clean lookup would be worse than the panel it replaced. */
+  chk('a clean run is still a no-op', resolveNoop(emptyReport()));
 }
 
 group('the banner above the tabs states the consequence');

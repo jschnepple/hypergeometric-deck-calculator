@@ -54,8 +54,8 @@ silently swallows everything you just added.
 ## Testing
 
 ```bash
-node tests/run-all.js      # 1176 tests, ~15s, zero dependencies
-npm install jsdom          # optional; adds 111 more from dom.test.js
+node tests/run-all.js      # 1209 tests, ~15s, zero dependencies
+npm install jsdom          # optional; adds 115 more from dom.test.js
 ```
 
 In a sandbox that cannot write to the checkout, jsdom goes somewhere else:
@@ -107,6 +107,13 @@ Run the suite after any edit to `index.html`.
   draw. `onCurve()` in `GOLDFISH` is the probability, and it is a separate thing
   built on separate maths. Conflating them is the natural mistake — it is what
   started session four.
+- **`.hide` loses to any later single-class rule that sets `display`.** Both are
+  specificity (0,0,1,0), so `.rmodal{display:flex}` declared after it made
+  `class="rmodal hide"` compute to `flex` — a full-viewport blurred overlay from
+  first paint, unclosable, while every `classList.contains('hide')` assertion in
+  `dom.test.js` passed. **Assert on computed style, not on the class**; there is
+  now a boot check that sweeps every `.hide` element for `display:none`. Any new
+  component that sets `display` needs its own `.x.hide{display:none}`.
 - **Pure logic goes in a testable slice, even when it produces markup.**
   `gfBulkHTML`/`gfDrillHTML` return strings and live in `GOLDFISH`, not `RENDER`,
   so `extract.js` can reach them. A broken template literal does not throw; it
@@ -137,6 +144,20 @@ Run the suite after any edit to `index.html`.
   endpoint (exact, folds accents) → `!"name"` search (matches printed names,
   still exact, applied and reported) → `named?fuzzy=` (a GUESS: offered with a
   button, never applied). Only the first two may touch the deck on their own.
+- **`!"name"` is not the single-result endpoint it looks like.** It matches any
+  name a printing carries, faces included: live, `!"Lightning Bolt"` returns two
+  distinct oracle ids, because a card exists with a face by that name.
+  `searchPrimaries` narrows to hits whose WHOLE name (`name` or `printed_name`)
+  folds equal, falling back to all hits when none does so "4 Fire" still finds
+  Fire // Ice. It deliberately does **not** reuse `cardKeys`, which includes face
+  names on purpose — "has a face called X" and "is called X" are different
+  questions and conflating them refuses Lightning Bolt.
+- **A halted lookup reports nothing about the deck.** One 429 used to cascade:
+  the later passes fired a request per card, each also rate-limited, and the
+  dialog announced a real sixty-card deck as "Not found — 47 cards". `report.halted`
+  stops the remaining passes, clears `missing`, and says the run could not
+  finish. `missing` is assembled at the END from what is still unresolved, not
+  pushed to as we go.
 - **`matches()` is the tool's NARROWEST reader of a card.** It sees a type line
   and a mana value; `analyseCards` sees more. Every caller that assumed otherwise
   has been a bug. Two rules follow, both now enforced and tested:
@@ -443,7 +464,7 @@ chain in closed form, and plots strictness against the cards it costs.
 
 ## Current state — 2026-08-27 (session 6)
 
-**Done.** 1176 tests green (1287 with jsdom installed). Session 2 loaded the first
+**Done.** 1209 tests green (1324 with jsdom installed). Session 2 loaded the first
 real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
 with functionality frozen; session 4 added the Goldfish tab and produced the
 strongest cross-validation the mana math has had — the closed-form conditional

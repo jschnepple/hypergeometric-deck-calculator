@@ -68,6 +68,24 @@ const LIST = [
 /* ------------------------------------------------------------------ */
 group('the page boots');
 chk('no errors on load', jsErrors.length === 0, jsErrors.join(' | '));
+
+/* Hidden means HIDDEN, checked through the cascade rather than through the class.
+
+   This is the assertion that catches the bug the class-based ones cannot. `.hide`
+   is `display:none` at a specificity of (0,0,1,0); any later single-class rule
+   that sets `display` beats it. `.rmodal{display:flex}` did exactly that, so
+   `class="rmodal hide"` computed to flex and a fixed, full-viewport, blurred
+   overlay covered the page from first paint — while every `classList.contains
+   ('hide')` assertion in this file passed, because the test and the stylesheet
+   disagreed about what "hidden" means and only one of them talks to the user. */
+{
+  const hidden = [...d.querySelectorAll('.hide')];
+  chk('there are hidden elements to check', hidden.length > 0);
+  const visible = hidden.filter(el => w.getComputedStyle(el).display !== 'none');
+  chk(`all ${hidden.length} .hide elements actually compute to display:none`,
+      visible.length === 0,
+      visible.map(el => `#${el.id || '?'}.${el.className}=${w.getComputedStyle(el).display}`).join(', '));
+}
 const refIds = new Set();
 for (const m of HTML.matchAll(/\$\('([\w-]+)'\)/g)) refIds.add(m[1]);
 for (const m of HTML.matchAll(/getElementById\('([\w-]+)'\)/g)) refIds.add(m[1]);
@@ -290,9 +308,10 @@ group('the resolution dialog');
     ambiguous: [],
     missing: ['Total Nonsense'],
   };
-  chk('it starts hidden', $('rmodal').classList.contains('hide'));
+  const shown = () => w.getComputedStyle($('rmodal')).display !== 'none';
+  chk('it starts hidden — by computed style, not by class', !shown());
   w.showResolveDialog(report);
-  chk('showing it reveals the modal', !$('rmodal').classList.contains('hide'));
+  chk('showing it reveals the modal', shown() && !$('rmodal').classList.contains('hide'));
   chk('the rename is reported', /Doc Ock/.test(text($('rmodalBody'))));
   chk('the missing card is reported', /Total Nonsense/.test(text($('rmodalBody'))));
   clean('resolution dialog', $('rmodalBody').innerHTML);
@@ -312,19 +331,27 @@ group('the resolution dialog');
 
   w.showResolveDialog(report);
   click($('rmodalX'));
-  chk('the X closes it', $('rmodal').classList.contains('hide'));
+  chk('the X closes it', !shown());
   w.showResolveDialog(report);
   click($('rmodalBackdrop'));
-  chk('the backdrop closes it', $('rmodal').classList.contains('hide'));
+  chk('the backdrop closes it', !shown());
   w.showResolveDialog(report);
   d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  chk('Escape closes it', $('rmodal').classList.contains('hide'));
+  chk('Escape closes it', !shown());
 
   /* A lookup with nothing to say must never interrupt. */
-  w.showResolveDialog({ renamed: [], suggested: [], ambiguous: [], missing: [] });
-  chk('a clean lookup opens no dialog', $('rmodal').classList.contains('hide'));
+  w.showResolveDialog({ renamed: [], suggested: [], ambiguous: [], missing: [], halted: null });
+  chk('a clean lookup opens no dialog', !shown());
   w.showResolveDialog(null);
-  chk('and neither does a null report', $('rmodal').classList.contains('hide'));
+  chk('and neither does a null report', !shown());
+
+  /* But a run that could not FINISH must interrupt, even with nothing else to
+     say — otherwise a rate-limited lookup looks exactly like a clean one. */
+  w.showResolveDialog({ renamed: [], suggested: [], ambiguous: [], missing: [], halted: 'rate' });
+  chk('a halted lookup does open one', shown());
+  chk('and says nothing is a verdict about the deck',
+      /Nothing below is a verdict about your decklist/i.test(text($('rmodalBody'))));
+  click($('rmodalOk'));
 }
 
 group('nothing threw along the way');
