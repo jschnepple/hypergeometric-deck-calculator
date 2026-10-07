@@ -168,6 +168,7 @@ input[type=number]{width:64px}
   margin-bottom:var(--s2);border-radius:0 var(--r2) var(--r2) 0;font-size:12.5px}
 .conflict.ok{border-left-color:var(--good);background:rgba(78,196,106,.07)}
 .conflict.warn{border-left-color:var(--warn);background:rgba(224,169,44,.07)}
+.vbad{color:var(--bad)}
 
 #deckbar{display:flex;gap:var(--s2);align-items:center;padding:var(--s2) var(--s6);background:var(--g1);
   border-bottom:1px solid var(--edge);flex-wrap:wrap;
@@ -349,6 +350,34 @@ td .empty,.empty.row1{padding:var(--s3) 0}
 .vchip i{font-style:normal;font-size:10.5px;color:var(--dim2);font-variant-numeric:tabular-nums}
 .vchip.on i{color:var(--dim)}
 .vchip.broken{color:var(--bad)}
+
+/* Two-faced card face picker. One row per card, a three-way segmented control
+   under it. `.fseg button.on` needs its own background because these sit inside
+   a .card, where the generic button rule already paints a surface. */
+.frow{padding:var(--s3) 0;border-bottom:1px solid var(--line)}
+.frow:last-child{border-bottom:none}
+.frow .fname{font-size:12.5px;color:var(--tx);margin-bottom:6px}
+.frow .fname code{font-size:11px;color:var(--dim2)}
+.fseg{display:flex;gap:4px;flex-wrap:wrap}
+.fseg button{font-size:11.5px;padding:4px 9px;border-radius:var(--rp);background:none;
+  border:1px solid var(--edge);color:var(--dim);box-shadow:none;text-align:left}
+.fseg button:hover{background:rgba(255,255,255,.05);color:var(--tx);transform:none;box-shadow:none}
+.fseg button.on{background:var(--g2);color:var(--tx);border-color:var(--edge-str);
+  box-shadow:inset 0 1px 0 var(--sheen)}
+.fseg button i{font-style:normal;color:var(--dim2);font-size:10.5px;margin-left:5px;
+  font-variant-numeric:tabular-nums}
+.fseg button.on i{color:var(--dim)}
+/* Type selection in a dig payoff. Reuses the face picker's segmented buttons —
+   same control, same solved contrast — and adds only the frame and the label
+   column. A chosen chip also carries a tick, so the state never rests on the
+   background shade alone. */
+.tsel{margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r1)}
+.tsel .trow{display:flex;gap:8px;align-items:baseline;margin-top:8px}
+.tsel .trow>.mini{flex:none;width:104px}
+.tsel .fseg button.stale{border-style:dashed}
+.tsel .tfoot{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap}
+.tsel .tfoot button{font-size:11.5px;padding:4px 10px}
+@media (max-width:560px){ .tsel .trow{flex-direction:column;gap:4px} .tsel .trow>.mini{width:auto} }
 .vswaps{flex-basis:100%;font-size:11.5px;color:var(--dim);padding:var(--s2) var(--s2) 2px;
   display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap}
 .vswaps .sw{font-variant-numeric:tabular-nums}
@@ -593,7 +622,9 @@ Then click “Look up costs (Scryfall)” above."></textarea>
         Format <code>4 Lightning Bolt</code>. Everything recalculates as you type.<br>
         Put a <code>Sideboard</code> line before your sideboard cards and they are kept out of the deck.<br>
         Override a cost inline: <code>4 Some Card {1}{R}{R}</code> · land Scryfall can't find:
-        <code>4 Mystery Land [land:RG]</code>
+        <code>4 Mystery Land [land:RG]</code><br>
+        Cast only one half of an Adventure or split card: <code>2 Callous Sell-Sword [face:adventure]</code>
+        — or use the Two-faced cards panel below.
       </div>
     </div>
 
@@ -607,6 +638,11 @@ Then click “Look up costs (Scryfall)” above."></textarea>
     <div class="card">
       <h2>Goals <span id="goalCount" class="mini"></span></h2>
       <div id="goalEditor"></div>
+    </div>
+
+    <div class="card" id="faceCard">
+      <h2>Two-faced cards <span id="faceCount" class="mini"></span></h2>
+      <div id="faceList"></div>
     </div>
 
     <div class="card">
@@ -743,6 +779,7 @@ Then click “Look up costs (Scryfall)” above."></textarea>
         <div class="row" style="margin-bottom:12px">
           <button id="addUB">+ United Battlefront</button>
           <button id="addGB">+ Getaway Barrel</button>
+          <button id="addDC">+ Dáin's Company</button>
           <button id="addCustom">+ Custom dig effect</button>
         </div>
         <div id="payoffList"></div>
@@ -1154,6 +1191,34 @@ function foldKey(name){
     .trim().toLowerCase();
 }
 
+/* Plural and snow-covered spellings of the basic lands.
+
+   "5 Islands" is not a typo and it is not a guess — nobody has ever meant
+   anything else by it, and hand-typed lists are full of it. Scryfall disagrees
+   on all three tiers: the collection endpoint wants the oracle name, `!"islands"`
+   matches nothing at all, and only `named?fuzzy=` finds it — which this tool
+   deliberately treats as a SUGGESTION and never applies on its own.
+
+   So a pluralised basic used to sit unresolved behind a button, and an
+   unresolved card is not merely uncounted: parseList gives it land:false and
+   mana value 0, so five Islands became five colourless nonland 0-drops. A real
+   twenty-land deck reported twelve lands, an average mana value dragged down by
+   eight phantom zeroes, and a land recommendation computed from that average.
+   Every figure on the page was wrong and nothing said so.
+
+   This tier is DETERMINISTIC, which is why it belongs beside the exact matches
+   rather than in the guessing pass. "Spyrebluff Canal" is a genuine misspelling
+   and still goes to the suggestion dialog, as it should. */
+const BASIC_PLURALS={plains:'Plains', islands:'Island', mountains:'Mountain',
+                     forests:'Forest', swamps:'Swamp', wastes:'Wastes'};
+function basicAlias(name){
+  const m=foldKey(name).match(/^(snow-covered\s+)?([a-z]+)$/);
+  if(!m) return null;
+  const canon=BASIC_PLURALS[m[2]];
+  if(!canon) return null;
+  return m[1] ? 'Snow-Covered '+canon : canon;
+}
+
 /* The folded view of DB, derived rather than stored.
 
    Derived for one reason: DB is what travels to localStorage and back, so an
@@ -1198,7 +1263,16 @@ function dbLookup(name){
      `toString` would otherwise come back as truthy "records" with no pips. */
   const k = String(name||'').trim().toLowerCase();
   if(Object.prototype.hasOwnProperty.call(db, k)) return db[k];
-  return foldIndex()[foldKey(name)] || null;
+  const idx=foldIndex(), fk=foldKey(name);
+  /* `in`, not a truthiness test: foldIndex stores null for a folded collision,
+     and that null is a REFUSAL. Falling through it to the basic-land tier would
+     let a contested key be answered by a guess after all. */
+  if(fk in idx) return idx[fk];
+  const alias=basicAlias(name);
+  if(!alias) return null;
+  const ak=alias.toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(db, ak)) return db[ak];
+  return idx[foldKey(alias)] || null;
 }
 
 /* Every name one Scryfall card should answer to.
@@ -1215,6 +1289,41 @@ function cardKeys(cd){
   push(cd.name); push(cd.printed_name);
   (cd.card_faces||[]).forEach(f=>{ push(f.name); push(f.printed_name); });
   return [...new Set(out)];
+}
+
+/* The faces of a card that are two different spells with two different costs.
+
+   Scryfall's top-level `mana_cost` for these layouts is the two costs
+   CONCATENATED — Callous Sell-Sword // Burn Together comes back as
+   "{1}{B} // {R}" — and parseCost reads every symbol in the string, so it
+   returns one phantom spell costing {1}{B}{R}. The colour table then demands
+   thirteen black sources from an Izzet deck that plays the card purely as a red
+   removal spell, and the summed mana value distorts the curve on top.
+
+   Only layouts whose two faces are both cast FROM HAND, off their own costs,
+   qualify. A `transform` card's back face is never cast. A modal DFC whose back
+   is a LAND is already modelled by `mdfcLand` and the Karsten MDFC term, and is
+   excluded here so this cannot reach into that: a card counted as a land-ish
+   thing by one part of the tool and as a choice of two spells by another is the
+   same class of disagreement the type-line rules exist to stop.
+
+   Scryfall orders these faces primary-first — the creature before its Adventure,
+   the left half of a split — and `faces[0]` is relied on to be the one a deck
+   means when it does not say. */
+const FACE_LAYOUTS=['adventure','split','modal_dfc'];
+function castableFaces(cd, mdfcLand){
+  const faces=cd && cd.card_faces;
+  if(!faces || faces.length<2) return null;
+  if(!FACE_LAYOUTS.includes(cd.layout)) return null;
+  if(mdfcLand) return null;
+  /* Both halves must actually cost something. A face with no mana cost is not a
+     mode you choose — it is the back of something that transforms. */
+  const out=faces.slice(0,2).map(f=>{
+    const pc=parseCost(f.mana_cost||'');
+    return {name:f.name||'', cost:f.mana_cost||'', cmc:pc.cmc, pips:pc.pips,
+            typeLine:f.type_line||''};
+  });
+  return out.every(f=>f.cost) ? out : null;
 }
 
 /* One Scryfall card object -> one DB record.
@@ -1255,7 +1364,21 @@ function cardRecord(cd){
     /* Carried so foldIndex can tell "one card under two spellings" from "two
        cards" after a localStorage round trip has broken object identity. */
     oracleId: cd.oracle_id||null,
+    /* The name to PRINT, as distinct from the name the deck happens to type.
+       The conflict report names the card driving each colour requirement, and it
+       was quoting the decklist back — "need 14 for wild ride on curve". The
+       parser deliberately keeps the typed name, because renameInList has to find
+       the line again, so the display name rides alongside rather than replacing
+       it. For a two-faced card the FACE name wins over both; that is the whole
+       point of saying which half is asking. */
+    displayName: cd.name||'',
     typeLine, subtypes,
+    /* A changeling is every creature type, and nothing on its type line says so
+       ("Creature — Shapeshifter"). The keyword is the only place it is written
+       down, so it has to be carried or a "Dwarf" payoff undercounts. */
+    changeling: (cd.keywords||[]).includes('Changeling'),
+    layout: cd.layout||'',
+    faces: castableFaces(cd, !isLand && backLand),
     verge: isLand ? parseVerge(oracle) : null,
     fetch: isLand ? parseFetch(oracle) : null,
     restriction: isLand ? parseRestriction(oracle) : null,
@@ -1436,14 +1559,17 @@ function parseEntry(raw){
   if(!m) return null;
   let rest = m[2].trim();
 
-  let landTag=null, costTag=null;
+  let landTag=null, costTag=null, faceTag=null;
   rest = rest.replace(/\[land:([WUBRGC]*)\]/i, (_,c)=>{ landTag=c.toUpperCase(); return ''; });
+  /* Stripped BEFORE the inline-cost match below, which anchors to the end of the
+     line — otherwise "4 Card {1}{R} [face:main]" would hide its own cost tag. */
+  rest = rest.replace(/\[face:([a-z0-9]+)\]/i, (_,v)=>{ faceTag=v.toLowerCase(); return ''; });
   const cm = rest.match(/(\{[^}]+\}\s*)+$/);
   if(cm){ costTag = cm[0].trim(); rest = rest.slice(0, cm.index); }
   rest = rest.replace(/\([^)]*\)\s*[\w-]*$/,'').trim();   // strip set codes
   const name = rest.trim();
   if(!name) return null;
-  return {qty:+m[1], name, landTag, costTag};
+  return {qty:+m[1], name, landTag, costTag, faceTag};
 }
 
 /* Rewrite one card's name throughout a list, preserving everything else on the
@@ -1464,12 +1590,98 @@ function renameInList(text, from, to){
   }).join('\n');
 }
 
+/* Which half of a two-faced card this deck actually casts.
+
+   Unrecognised tags fall back to `both` rather than throwing or refusing: the
+   tag is a hint the user typed by hand, and the default is the honest reading
+   of a card whose owner has not told us anything. */
+function faceMode(tag){
+  const t=String(tag||'').toLowerCase();
+  if(['main','front','creature','primary','1'].includes(t)) return 'main';
+  if(['adventure','adv','alt','back','spell','2'].includes(t)) return 'alt';
+  return 'both';
+}
+
+/* Narrow a card to the face or faces the deck intends to cast.
+
+   Everything downstream — the curve, the goldfish, the goal clauses, the payoff
+   matcher — reads `cmc`, `pips`, `cost` and `typeLine` as though a card had one
+   of each. So a chosen face REPLACES them rather than sitting alongside, and
+   nothing else in the tool needs to learn what an Adventure is.
+
+   `reqFaces` is the exception, and it is the point. The colour-requirement pass
+   has to see each intended face SEPARATELY, because you cast one side or the
+   other and never both at once. Summing their pips invents a spell that needs
+   every colour on the card simultaneously — which is exactly how an Izzet deck
+   came to be told it was thirteen black sources short for a card it only ever
+   casts as a red spell.
+
+   With no face chosen the card keeps both faces in `reqFaces`, so each one is
+   measured on its own terms, and the PRIMARY face drives the curve and the
+   goldfish. That is already what Scryfall's own mana value does for an
+   Adventure, and for a split card it is the cheaper, likelier deployment —
+   strictly better than the summed figure this replaces, which read Fire // Ice
+   as a four-mana spell needing both red and blue at once. */
+function applyFace(card, rec, tag){
+  const faces=rec && rec.faces;
+  if(!faces || faces.length<2) return card;
+  const mode=faceMode(tag);
+  const lead = mode==='alt' ? faces[1] : faces[0];
+  card.faces=faces;
+  card.layout=rec.layout||'';
+  card.faceMode=mode;
+  card.faceName=lead.name;
+  card.reqFaces=(mode==='both' ? faces : [lead]).map(f=>Object.assign({},f));
+  card.cmc=lead.cmc;
+  card.pips=Object.assign({},lead.pips);
+  card.cost=lead.cost;
+  if(lead.typeLine) card.typeLine=lead.typeLine;
+  return card;
+}
+
+/* The faces a colour requirement is measured against — one per intended face,
+   or the card itself when it has only one.
+
+   `typeLine` travels with each view because sourcesFor hands it to
+   restrictionAllows: "spend this mana only to cast an artifact spell" has to be
+   checked against the face being cast, not against whichever face the card
+   leads with. Cavern of Souls paying for the creature half of an Adventure and
+   not for the instant half is a real distinction. */
+function faceViews(c){
+  if(c && c.reqFaces && c.reqFaces.length)
+    return c.reqFaces.map(f=>({cmc:f.cmc, pips:f.pips||{}, cost:f.cost,
+                               typeLine:f.typeLine||'',
+                               label:f.name||c.displayName||c.name}));
+  return [{cmc:c.cmc, pips:c.pips||{}, cost:c.cost,
+           typeLine:c.typeLine||'', label:c.displayName||c.name}];
+}
+
+/* Write a face choice into the decklist text, in place.
+
+   The textarea is the single source of truth for everything else the tool knows
+   about a deck, so a face choice lives there too rather than in a parallel
+   per-build structure. That is what makes it survive export, import, a paste
+   into a different deck, and the sideboard and variant paths — all of which
+   re-read the text and none of which would know to consult a side table. Same
+   argument as renameInList, which edits the line rather than keeping a rename
+   map beside it. */
+function setFaceInList(text, name, mode){
+  const k=foldKey(name);
+  if(!k) return String(text||'');
+  return String(text||'').split('\n').map(raw=>{
+    const e=parseEntry(raw);
+    if(!e || foldKey(e.name)!==k) return raw;
+    const bare=raw.replace(/\s*\[face:[a-z0-9]+\]/ig,'').replace(/\s+$/,'');
+    return (mode && mode!=='both') ? bare+' [face:'+mode+']' : bare;
+  }).join('\n');
+}
+
 function parseList(text){
   const out=[], unknown=[];
   for(let raw of text.split('\n')){
     const e = parseEntry(raw);
     if(!e) continue;
-    const {qty, name, landTag, costTag} = e;
+    const {qty, name, landTag, costTag, faceTag} = e;
 
     const rec = dbLookup(name);
     let card;
@@ -1482,7 +1694,12 @@ function parseList(text){
       card={name,qty,land:rec.land,produces:rec.produces||[],tapped:!!rec.tapped,
             cmc:rec.cmc,pips:rec.pips,cost:rec.cost,rampdraw:rec.rampdraw,mdfcLand:rec.mdfcLand,
             subtypes:rec.subtypes||[], verge:rec.verge||null, typeLine:rec.typeLine||'',
+            displayName:rec.displayName||name, changeling:!!rec.changeling,
             fetch:rec.fetch||null, restriction:rec.restriction||null, src:'scryfall'};
+      /* After the record is copied out, not before: applyFace overwrites cmc,
+         pips, cost and typeLine with the chosen face's, and must not be handed
+         the shared DB record to write through. */
+      applyFace(card, rec, faceTag);
     } else {
       card={name,qty,unknown:true,land:false,produces:[],cmc:0,pips:{W:0,U:0,B:0,R:0,G:0},src:'none'};
       unknown.push(name);
@@ -1626,6 +1843,10 @@ function cloneCard(c){
   o.pips=Object.assign({},c.pips||{});
   o.produces=(c.produces||[]).slice();
   o.subtypes=(c.subtypes||[]).slice();
+  /* Same argument as produces and subtypes: these come off the shared DB record
+     by way of applyFace, and a variant must not be able to write through them
+     into what the maindeck column says. */
+  if(c.reqFaces) o.reqFaces=c.reqFaces.map(f=>Object.assign({},f));
   return o;
 }
 
@@ -1745,8 +1966,28 @@ function analyseCards(cards, unknown, opts){
   const onPlay=!!(opts&&opts.onPlay);
 
   const total=cards.reduce((s,c)=>s+c.qty,0);
-  const lands=cards.filter(c=>c.land);
-  const spells=cards.filter(c=>!c.land);
+
+  /* An unresolved card is NOT a spell, and this is where that used to go wrong.
+
+     parseList hands an unknown card land:false, cmc:0 and no pips — the only
+     honest thing it can do, since it knows nothing about the card. Partitioning
+     on `land` alone then swept every one of them into `spells`, where they were
+     counted, curved at mana value 0, and averaged. The panels said so out loud:
+     "excluded from every calculation" sat above a curve with eight cards in the
+     0 column and an average mana value computed over them.
+
+     The house rule was already written — "callers must skip unknown cards
+     themselves", which evalPayoff and goalSets do — and analyseCards was the one
+     caller that never did. They stay in `total`, because they really do fill
+     slots in the library; they are in neither partition, because the tool does
+     not know which one they belong to. That makes landCount + spellCount less
+     than total whenever anything is unresolved, which is a true statement about
+     the deck and is now reported as one rather than hidden by rounding it into
+     the spell side. */
+  const known=cards.filter(c=>!c.unknown);
+  const unknownCount=cards.reduce((s,c)=>s+(c.unknown?c.qty:0),0);
+  const lands=known.filter(c=>c.land);
+  const spells=known.filter(c=>!c.land);
   const landCount=lands.reduce((s,c)=>s+c.qty,0);
   const spellCount=spells.reduce((s,c)=>s+c.qty,0);
 
@@ -1803,23 +2044,34 @@ function analyseCards(cards, unknown, opts){
      spend. */
   const drivers=[], need={W:0,U:0,B:0,R:0,G:0}, needFrom={}, needTurn={}, needCard={};
   spells.forEach(c=>{
-    COLORS.forEach(col=>{
-      const p=Math.ceil(c.pips[col]||0);
-      if(p<1) return;
-      const turn=Math.max(1,Math.min(7,Math.round(c.cmc)||1));
-      const r=required(p,turn); if(!r) return;
-      const s=sourcesFor(col,turn,lands,enablers,N,onPlay,c);
-      drivers.push({name:c.name,cost:c.cost||'',qty:c.qty,col,pips:p,turn,req:r,
-                    have:s.total,haveFull:s.full,haveFrac:s.frac,haveRestricted:s.restricted});
-      // Bind on the biggest shortfall, not the biggest requirement — a spell
-      // needing 18 with 18 sources is fine; one needing 11 with 5 is the problem.
-      const short=r.use-s.total;
-      const bound=needCard[col];
-      const boundShort=bound? need[col]-bound.have : -Infinity;
-      if(!bound || short>boundShort){
-        need[col]=r.use; needFrom[col]=c.name; needTurn[col]=turn;
-        needCard[col]={card:c, have:s.total, restricted:s.restricted, frac:s.frac, weight:s.weight};
-      }
+    /* One pass per INTENDED FACE, not per card.
+
+       A two-faced card is two spells sharing a slot, cast one at a time, and
+       each half makes its own demand at its own mana value. Reading the card's
+       summed pips at its summed mana value asks for every colour on it at once
+       — the failure that had a two-colour deck short thirteen sources of a
+       colour it does not play. faceViews yields exactly one view for an ordinary
+       card, so nothing else changes shape. */
+    faceViews(c).forEach(v=>{
+      COLORS.forEach(col=>{
+        const p=Math.ceil(v.pips[col]||0);
+        if(p<1) return;
+        const turn=Math.max(1,Math.min(7,Math.round(v.cmc)||1));
+        const r=required(p,turn); if(!r) return;
+        /* The FACE, not the card, is what a restricted land is checked against. */
+        const s=sourcesFor(col,turn,lands,enablers,N,onPlay,v);
+        drivers.push({name:v.label,cost:v.cost||'',qty:c.qty,col,pips:p,turn,req:r,
+                      have:s.total,haveFull:s.full,haveFrac:s.frac,haveRestricted:s.restricted});
+        // Bind on the biggest shortfall, not the biggest requirement — a spell
+        // needing 18 with 18 sources is fine; one needing 11 with 5 is the problem.
+        const short=r.use-s.total;
+        const bound=needCard[col];
+        const boundShort=bound? need[col]-bound.have : -Infinity;
+        if(!bound || short>boundShort){
+          need[col]=r.use; needFrom[col]=v.label; needTurn[col]=turn;
+          needCard[col]={card:c, face:v, have:s.total, restricted:s.restricted, frac:s.frac, weight:s.weight};
+        }
+      });
     });
   });
   drivers.sort((a,b)=> (b.req.use-b.have)-(a.req.use-a.have));
@@ -1832,7 +2084,7 @@ function analyseCards(cards, unknown, opts){
     if(b.restricted>0) restrictedInfo[col]=b.restricted; else delete restrictedInfo[col];
   });
 
-  return {cards,unknown,total,lands,spells,landCount,spellCount,sources,untapped,enablers,condInfo,
+  return {cards,unknown,unknownCount,total,lands,spells,landCount,spellCount,sources,untapped,enablers,condInfo,
           restrictedInfo,fetchInfo,
           curve,avgMV,rec,recR,need,needFrom,needTurn,drivers,N,thr,onPlay,rampN,mdfcT,mdfcU};
 }
@@ -1926,7 +2178,153 @@ function matches(card, c){
   if(c.mvOp==='lte'&&!(mv<=c.mvVal)) return false;
   if(c.mvOp==='gte'&&!(mv>=c.mvVal)) return false;
   if(c.mvOp==='eq'&&!(mv===c.mvVal)) return false;
+  /* Type selection is one more AND, and inside it the chips are an OR: the card
+     must be at least one of the chosen types. An empty or absent list is no
+     restriction at all, which is what keeps every payoff saved before this
+     existed reading exactly as it did. */
+  const any=Array.isArray(c.anyOf)?c.anyOf.filter(k=>typeof k==='string'&&k):[];
+  if(any.length&&!anyOfHit(card,any)) return false;
   return true;
+}
+
+/* ---- type selection: "a Dwarf or Equipment card" ---------------------------
+
+   The three dropdowns above can say creature / land / permanent and nothing
+   finer, and they can only be ANDed. Real dig effects name subtypes and join
+   them with OR. Dáin's Company, checked against Scryfall rather than recalled:
+
+     "look at the top four cards of your library. You may reveal a Dwarf or
+      Equipment card from among them and put it into your hand."
+
+   So a payoff carries `anyOf`, a list of keys, and a card hits if it is ANY of
+   them. Three kinds of key:
+
+     type:Artifact     a permanent card type, read before the em dash
+     sub:Equipment     a subtype that is not a creature type
+     creature:Dwarf    a creature type
+
+   `creature:Dwarf` matches a card with the Dwarf SUBTYPE — it does not also
+   demand the Creature card type. That is what the cards say ("a Dwarf card"),
+   and it is why a Kindred spell counts. To insist on an actual creature, set
+   the creature dropdown as well; the two are ANDed.
+
+   The only difference between `sub:` and `creature:` is a changeling, which is
+   every creature type and no artifact type. */
+const PERM_TYPES=['Artifact','Battle','Creature','Enchantment','Land','Planeswalker'];
+const PERM_TYPE_RE={};
+PERM_TYPES.forEach(t=>{ PERM_TYPE_RE[t]=new RegExp('\\b'+t+'\\b','i'); });
+const KINDRED_RE=/\b(Kindred|Tribal)\b/i;
+/* Subtypes that can sit on a creature's type line without being creature types
+   — "Artifact Creature — Equipment Fox" is one card. Artifact, enchantment and
+   land types; the list only has to cover what can share a line with Creature,
+   and a type missing from it is merely filed in the wrong row of chips (and
+   would be matched by a changeling). It still counts correctly otherwise. */
+const NONCREATURE_SUBS=new Set(('attraction blood bobblehead clue contraption equipment food fortification gold '+
+  'incubator infinity junk lander map powerstone spacecraft stone treasure vehicle '+
+  'aura background cartouche case class curse role room rune saga shard shrine '+
+  'plains island swamp mountain forest cave desert gate lair locus mine planet power-plant sphere tower town urza’s urza\'s').split(' '));
+
+/* Card types and subtypes of one card, from its FRONT-face type line. */
+function typeParts(card){
+  const tl=String((card&&card.typeLine)||'');
+  // Same fallback matches() makes: an inline [land:XY] tag carries no type line.
+  if(!tl.trim()) return {types:(card&&card.land)?['Land']:[], subs:[], kindred:false};
+  const cut=tl.split('—');
+  const head=cut[0]||'';
+  return {
+    types:PERM_TYPES.filter(t=>PERM_TYPE_RE[t].test(head)),
+    subs:(cut[1]||'').trim().split(/\s+/).filter(Boolean),
+    kindred:KINDRED_RE.test(head)
+  };
+}
+function anyOfHit(card, keys){
+  const p=typeParts(card);
+  const ling=!!(card&&card.changeling)&&(p.types.includes('Creature')||p.kindred);
+  const has=(list,v)=>list.some(x=>x.toLowerCase()===v);
+  return keys.some(k=>{
+    const i=k.indexOf(':'); if(i<1) return false;
+    const kind=k.slice(0,i), v=k.slice(i+1).toLowerCase();
+    if(kind==='type') return has(p.types,v);
+    if(kind==='sub') return has(p.subs,v);
+    if(kind==='creature') return ling||has(p.subs,v);
+    return false;                      // an unknown kind matches nothing
+  });
+}
+
+/* What there is to choose from: the permanent types, other permanent subtypes
+   and creature types ACTUALLY PRESENT in this list, each with how many cards
+   carry it. Built from the deck rather than from a master list for the same
+   reason the swap editor uses dropdowns — a chip you can click is a type the
+   deck has, so a typo cannot produce a confident zero.
+
+   Unresolved cards are skipped, as everywhere: no type line, nothing to offer.
+   A selection the deck no longer supports is kept and flagged rather than
+   dropped, so the builder never disagrees with the figure beside it. */
+function payoffTypeOptions(cards, selected){
+  const m=new Map();
+  const add=(kind,label,qty)=>{
+    const key=kind+':'+label;
+    if(!m.has(key)) m.set(key,{key,kind,label,qty:0});
+    m.get(key).qty+=qty;
+  };
+  let lings=[];
+  (cards||[]).forEach(c=>{
+    if(!c||c.unknown) return;
+    const qty=Math.max(0,Math.floor(+c.qty||0)); if(!qty) return;
+    const p=typeParts(c);
+    const cr=p.types.includes('Creature')||p.kindred;
+    p.types.forEach(t=>add('type',t,qty));
+    [...new Set(p.subs)].forEach(sub=>{
+      if(cr&&!NONCREATURE_SUBS.has(sub.toLowerCase())) add('creature',sub,qty);
+      else if(p.types.length) add('sub',sub,qty);
+    });
+    if(c.changeling&&cr) lings.push({qty, subs:p.subs.map(x=>x.toLowerCase())});
+  });
+  // A changeling counts toward every creature type it does not already print.
+  m.forEach(o=>{ if(o.kind==='creature') lings.forEach(l=>{
+    if(!l.subs.includes(o.label.toLowerCase())) o.qty+=l.qty; }); });
+  (Array.isArray(selected)?selected:[]).forEach(k=>{
+    if(typeof k!=='string'||m.has(k)) return;
+    const i=k.indexOf(':'); if(i<1) return;
+    const kind=k.slice(0,i);
+    if(kind!=='type'&&kind!=='sub'&&kind!=='creature') return;
+    m.set(k,{key:k,kind,label:k.slice(i+1),qty:0,stale:true});
+  });
+  const all=[...m.values()], az=(a,b)=>a.label.localeCompare(b.label);
+  return {
+    types:all.filter(o=>o.kind==='type').sort((a,b)=>PERM_TYPES.indexOf(a.label)-PERM_TYPES.indexOf(b.label)),
+    subs:all.filter(o=>o.kind==='sub').sort(az),
+    creatures:all.filter(o=>o.kind==='creature').sort(az)
+  };
+}
+function togglePayoffType(p, key){
+  const cur=Array.isArray(p.anyOf)?p.anyOf.filter(k=>typeof k==='string'):[];
+  p.anyOf=cur.includes(key)?cur.filter(k=>k!==key):cur.concat([key]);
+  return p.anyOf;
+}
+/* The chips. Returns a string and lives here, not in RENDER, so a test can
+   read it — a broken template renders the word "undefined" and throws nothing. */
+function typeChipsHTML(p, opts){
+  const on=Array.isArray(p.anyOf)?p.anyOf.filter(k=>typeof k==='string'):[];
+  const chip=o=>{
+    const sel=on.includes(o.key);
+    return `<button type="button" class="${sel?'on':''}${o.stale?' stale':''}" data-any="${esc(o.key)}" aria-pressed="${sel?'true':'false'}"${
+      o.stale?' title="No card in this list has this type any more"':''}>${sel?'✓ ':''}${esc(o.label)}<i>${o.qty}</i></button>`;
+  };
+  const row=(label,list)=>list.length?`<div class="trow"><span class="mini">${label}</span><div class="fseg">${list.map(chip).join('')}</div></div>`:'';
+  const perm=opts.types.concat(opts.subs);
+  if(!perm.length&&!opts.creatures.length){
+    return `<div class="tsel"><div class="mini"><b>Specific types.</b> Look up costs first — the types to choose from are read from the cards in this list.</div></div>`;
+  }
+  const names=[].concat(opts.types,opts.subs,opts.creatures).filter(o=>on.includes(o.key)).map(o=>esc(o.label));
+  return `<div class="tsel">
+    <div class="mini"><b>Specific types.</b> Pick any number — a card counts if it is <b>any one</b> of them, and it still has to pass the filters above.</div>
+    ${row('permanent types',perm)}${row('creature types',opts.creatures)}
+    <div class="tfoot"><span class="mini">${names.length
+      ?`Counting cards that are: <b>${names.join('</b> or <b>')}</b>`
+      :'Nothing selected — no type restriction.'}</span>${
+      names.length?`<button type="button" data-anyclear="1">Clear types</button>`:''}</div>
+  </div>`;
 }
 function evalPayoff(p, A){
   let N=A.total, K=0; const hitCards=[];
@@ -1936,7 +2334,9 @@ function evalPayoff(p, A){
   });
   // the source card is on the stack / in the graveyard when it resolves, so it
   // is not in the library — remove one copy of it if it would match its own filter
-  const self=A.cards.find(c=>c.name.toLowerCase()===(p.name||'').toLowerCase());
+  // Folded, and against the printed name too: nobody types the accent in "Dáin's".
+  const pk=foldKey(p.name||'');
+  const self=pk?A.cards.find(c=>foldKey(c.name||'')===pk||foldKey(c.displayName||'')===pk):null;
   if(self){ N-=1; if(matches(self,p)) K-=1; }
   const D=Math.min(p.depth,N);
   const dist=[]; for(let j=0;j<=Math.min(p.grab,K,D);j++) dist.push(hyperExact(j,K,D,N));
@@ -1951,10 +2351,17 @@ const PRESETS={
       note:'{3}{W} Sorcery — "Look at the top seven cards of your library. Put up to two noncreature, nonland <b>permanent</b> cards with mana value 3 or less from among them onto the battlefield."'},
   gb:{name:'Getaway Barrel',depth:13,grab:1,creature:'yes',land:'any',permanent:'any',mvOp:'any',mvVal:0,
       note:'{3}{R} Artifact — "When this artifact is put into a graveyard from the battlefield, reveal the top thirteen cards of your library. Put a <b>random</b> creature card from among them onto the battlefield."'},
+  dc:{name:"Dáin's Company",depth:4,grab:1,creature:'any',land:'any',permanent:'any',mvOp:'any',mvVal:3,
+      anyOf:['creature:Dwarf','sub:Equipment'],
+      note:'{R}{W} Creature — Dwarf Warrior — "When this creature enters, look at the top four cards of your library. You may reveal a <b>Dwarf or Equipment</b> card from among them and put it into your hand."'},
   custom:{name:'Custom',depth:7,grab:1,creature:'any',land:'any',permanent:'any',mvOp:'any',mvVal:3,note:''}
 };
 function addPayoff(kind){
-  PAYOFFS.push(Object.assign({id:++PID},PRESETS[kind]));
+  const p=Object.assign({id:++PID},PRESETS[kind]);
+  // Object.assign is shallow: without this every Dáin's Company shares one list
+  // with the preset, and ticking a chip on one edits them all.
+  p.anyOf=Array.isArray(p.anyOf)?p.anyOf.slice():[];
+  PAYOFFS.push(p);
   render();
 }
 
@@ -1969,6 +2376,7 @@ function renderPayoffs(A){
     `<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('')}</select>`;
   const YNA=[['any','any'],['yes','must be'],['no','must not be']];
   const heads=[];                       // headline figures to ease to, after the write
+  const typeCards=A.cards||[];
 
   $('payoffList').innerHTML=PAYOFFS.map(p=>{
     const r=evalPayoff(p,A);
@@ -1995,6 +2403,7 @@ function renderPayoffs(A){
         <span class="mini">MV</span>${sel(p.mvOp,[['any','any'],['lte','≤'],['gte','≥'],['eq','=']],'mvOp')}
         <input type="number" data-attr="mvVal" value="${p.mvVal}" min="0" max="16" style="width:46px">
       </div>
+      ${typeChipsHTML(p, payoffTypeOptions(typeCards, p.anyOf))}
       <div class="split" style="gap:14px">
         <div>
           <div class="big ${hcls}"><span data-nk="pay_${p.id}">${pct(NUMSTATE['pay_'+p.id]??headline)}</span>${dpp(headline,'pay_'+p.id)}</div>
@@ -4222,6 +4631,7 @@ function render(){
   renderCurve(A,'curveMini',true); renderCurve(A,'curveBig',false);
   renderLands(A); renderColors(A); renderCurveStats(A); renderCopies(A);
   renderPayoffs(A); renderUnresolved(A); renderUnresolvedBanner(A); renderMethod(A);
+  renderFaces();
   renderGoalEditor(A);
   renderConsistency(A);
   renderCompare();
@@ -4442,6 +4852,63 @@ function dpp(now, key){                     // diff badge in percentage points
   return `<span class="delta ${delta>0?'up':'down'}">${delta>0?'+':''}${delta.toFixed(1)}pp</span>`;
 }
 
+/* Display rounding for source counts. Whole numbers print whole — "10 sources",
+   not "10.0" — because most manabases have no conditional lands at all and a
+   spurious decimal point reads as false precision. */
+function num1(x){
+  const n=Math.round((+x||0)*10)/10;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/* The face picker.
+
+   Only appears when the deck actually holds a card with two castable faces —
+   most decks do not, and an empty panel explaining a mechanic you are not using
+   is clutter in a 400px column that is already the densest part of the page.
+
+   It writes an inline tag into the decklist rather than holding state of its
+   own. That is deliberate and it is the same call renameInList makes: the
+   textarea is what gets exported, imported, pasted into another build and
+   re-read by the sideboard and variant paths, so a choice recorded anywhere
+   else is a choice that quietly disappears down one of them. */
+function renderFaces(){
+  const host=$('faceList'), card=$('faceCard'); if(!host||!card) return;
+  const d=parseDeckCached($('list').value);
+  const seen=new Map();
+  [...d.cards, ...d.side].forEach(c=>{
+    if(!c.faces || c.faces.length<2) return;
+    const k=foldKey(c.name);
+    if(!seen.has(k)) seen.set(k,c);
+  });
+  card.classList.toggle('hide', seen.size===0);
+  $('faceCount').textContent = seen.size ? String(seen.size) : '';
+  if(!seen.size){ host.innerHTML=''; return; }
+
+  const rows=[...seen.values()].map(c=>{
+    const mode=c.faceMode||'both';
+    /* The tag written for the second face follows the card's own vocabulary:
+       "[face:adventure]" on an Adventure reads back as the sentence the player
+       would say. faceMode treats them as the same value. */
+    const altTok = c.layout==='adventure' ? 'adventure' : 'alt';
+    const btn=(m,tok,label,sub)=>
+      `<button class="${mode===m?'on':''}" data-fname="${esc(c.name)}" data-fmode="${tok}">`+
+      `${esc(label)}${sub?`<i>${esc(sub)}</i>`:''}</button>`;
+    const f0=c.faces[0], f1=c.faces[1];
+    return `<div class="frow">
+      <div class="fname">${esc(c.name)}${mode!=='both'?` <code>[face:${mode==='main'?'main':altTok}]</code>`:''}</div>
+      <div class="fseg">
+        ${btn('both','both','Both','either half')}
+        ${btn('main','main',f0.name||'Front',f0.cost||'')}
+        ${btn('alt',altTok,f1.name||'Back',f1.cost||'')}
+      </div>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = rows + `<div class="note">Pick the half you actually cast and the other one leaves
+    every calculation — its pips stop asking for sources and its mana value stops moving the curve.
+    <b>Both</b> measures each half on its own terms rather than adding them together.</div>`;
+}
+
 function renderConflicts(A){
   const out=[];
   if(A.total===0){
@@ -4451,6 +4918,14 @@ function renderConflicts(A){
       'described is even buildable. Start here; the other tabs explain where each verdict came from.');
     return;
   }
+
+  /* Unresolved cards come FIRST, because every verdict under them is computed
+     over a deck that is missing those cards. The old ordering buried this under
+     a confident land-count sentence derived from the very gap it was reporting. */
+  if(A.unknownCount) out.push(['warn',
+    `<b>${A.unknownCount} card${A.unknownCount===1?'':'s'}</b> could not be identified, so ${A.unknownCount===1?'it is':'they are'} in neither the land nor the spell count. `+
+    `Every figure below is computed over the other <b>${A.total-A.unknownCount}</b>. `+
+    `Run a Scryfall lookup, fix the spelling, or tag ${A.unknownCount===1?'it':'them'} inline.`]);
 
   // deck size
   if(A.total!==A.N) out.push(['bad',`Deck is <b>${A.total}</b> cards, not ${A.N}.`]);
@@ -4471,9 +4946,14 @@ function renderConflicts(A){
   COLORS.forEach(c=>{
     if(A.need[c]<1) return;
     const have=A.sources[c], want=A.need[c], miss=want-have;
-    if(miss>0){ short++;
+    /* A conditional dual counts for a FRACTION of a source — that is the whole
+       point of the Verge weighting — so `have` and the shortfall are floats and
+       were being printed raw: "3.802638647696905 sources … 10.197361352303094
+       short". Round for display only; the comparison stays exact. A shortfall
+       under a tenth of a source is a rounding artefact, not a problem to report. */
+    if(miss>0.1){ short++;
       out.push([miss>=3?'bad':'warn',
-        `${colDot(c)} <b>${CNAME[c]}</b>: ${have} sources, need <b>${want}</b> for ${A.needFrom[c]} on curve — <b>${miss} short</b>.`]);
+        `${colDot(c)} <b>${CNAME[c]}</b>: ${num1(have)} sources, need <b>${want}</b> for ${esc(A.needFrom[c]||'')} on curve — <b>${num1(miss)} short</b>.`]);
     }
   });
 
@@ -4501,10 +4981,14 @@ function renderGlance(A){
   const rows=[
     ['Total cards', A.total],
     ['Lands', A.landCount+d(A.landCount,'landCount')],
-    ['Spells', A.spellCount],
-    ['Average mana value', A.avgMV.toFixed(2)+d(A.avgMV,'avgMV')],
-    ['Recommended lands', A.recR+d(A.recR,'recR')]
+    ['Spells', A.spellCount]
   ];
+  /* Lands + spells no longer has to equal the total, so when it does not, say
+     why on the same panel. Silently absorbing the difference into one of the two
+     columns is the bug this row exists to make impossible to reintroduce. */
+  if(A.unknownCount) rows.push(['Unresolved', `<span class="vbad">${A.unknownCount}</span>`]);
+  rows.push(['Average mana value', A.avgMV.toFixed(2)+d(A.avgMV,'avgMV')]);
+  rows.push(['Recommended lands', A.recR+d(A.recR,'recR')]);
   $('glance').innerHTML = rows.map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
 }
 
@@ -4829,6 +5313,9 @@ function renderMethod(A){
   · Tainted lands and Nimbus Maze use the same mechanic but a different text shape, and are not auto-detected.<br>
   · Mana dorks and rocks are not auto-counted as sources; add them manually if your deck leans on them.<br>
   · Cantrips and card selection genuinely improve consistency beyond what these numbers show. Karsten's regression captures this for land count via the ramp/draw term, but the colour table does not.<br>
+  · <b>Two-faced cards:</b> an Adventure or split card is two spells sharing a slot, and each half is measured separately at its own mana value — never summed, which would ask for every colour on the card at once. Which half you actually cast is yours to say, in the Two-faced cards panel or inline with <code>[face:main]</code> / <code>[face:adventure]</code>; the half you rule out leaves every calculation.<br>
+  · <b>Two-faced cards:</b> with both halves in play the curve, the goldfish and the goal clauses read the <i>front</i> face — one card cannot occupy two columns of a curve. Only the colour requirements see both. A transform card's back face is never cast and is ignored; a modal double-faced card whose back is a land stays with the MDFC land term in panel 1.<br>
+  · Unresolved cards are in neither the land count nor the spell count, and are reported on their own row. They still fill slots in the library, so they count toward the deck size and satisfy nothing.<br>
   · Hybrid pips are counted as fractional requirements across each colour, which is an approximation.<br>
   · The colour table assumes 24 lands. Very low or very high land counts shift it slightly.
   </div>`;
@@ -5138,7 +5625,10 @@ async function lookup(){
     for(let i=0;i<names.length;i+=75){
       // Scryfall asks for 50-100ms between requests. Be a good citizen.
       if(i>0) await new Promise(r=>setTimeout(r,120));
-      const batch=names.slice(i,i+75).map(n=>({name:scryfallName(n)}));
+      /* Ask for the canonical basic. dbLookup can fold "islands" onto an Island
+         record, but only once one is IN the DB, and a deck that names no Island
+         would never put one there. */
+      const batch=names.slice(i,i+75).map(n=>({name:scryfallName(basicAlias(n)||n)}));
       const r=await fetch('https://api.scryfall.com/cards/collection',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({identifiers:batch})
@@ -5312,6 +5802,21 @@ $('vbar').addEventListener('click',e=>{
   }
 });
 
+/* Face choices. Delegated, like every other control render() rebuilds.
+
+   It edits the textarea, which fires no input event of its own when set from
+   script, so render() and markDirty() are called explicitly — the same shape as
+   the resolution dialog's "use this" button. */
+$('faceList').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b||!b.dataset.fname) return;
+  const el=$('list');
+  const next=setFaceInList(el.value, b.dataset.fname, b.dataset.fmode);
+  if(next===el.value) return;
+  el.value=next;
+  PD_VAL=null;
+  render(); markDirty();
+});
+
 $('vEditor').addEventListener('click',e=>{
   const v=getVariant(ACTIVE_V); if(!v) return;
   if(e.target.id==='vAddSwap'){ v.swaps.push({out:'',in:'',qty:1}); render(); markDirty(); return; }
@@ -5468,8 +5973,27 @@ $('gfOut').addEventListener('click',e=>{
 });
 $('addUB').addEventListener('click',()=>{addPayoff('ub');markDirty();});
 $('addGB').addEventListener('click',()=>{addPayoff('gb');markDirty();});
+$('addDC').addEventListener('click',()=>{addPayoff('dc');markDirty();});
 $('addCustom').addEventListener('click',()=>{addPayoff('custom');markDirty();});
 $('payoffList').addEventListener('click',e=>{
+  /* Type chips. The count sits in an <i> inside the button, so the click may
+     land on either — hence closest(). render() rebuilds the list wholesale, so
+     focus is put back on the same chip or a keyboard user loses their place on
+     every toggle. */
+  const chip=e.target.closest&&e.target.closest('[data-any],[data-anyclear]');
+  if(chip){
+    const host=chip.closest('[data-pid]'); if(!host) return;
+    const pid=host.dataset.pid, p=PAYOFFS.find(x=>x.id==pid); if(!p) return;
+    const key=chip.dataset.any;
+    if(key) togglePayoffType(p,key); else p.anyOf=[];
+    render(); markDirty();
+    if(key){
+      const again=[...$('payoffList').querySelectorAll('[data-any]')]
+        .find(b=>b.dataset.any===key && b.closest('[data-pid]').dataset.pid===pid);
+      if(again) again.focus();
+    }
+    return;
+  }
   const id=e.target.dataset.del;
   if(id){ PAYOFFS=PAYOFFS.filter(p=>p.id!=id); render(); markDirty(); }
 });

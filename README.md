@@ -23,7 +23,7 @@ No install, no build step, no server. One HTML file.
 | **Color Requirements** | Required vs. actual sources per color, with the specific card driving each requirement |
 | **Mana Curve** | Curve histogram, archetype fit, how curve changes color requirements |
 | **How Many Copies** | P(≥1 by turn N) at 1/2/3/4 copies — what the 3rd and 4th copy actually buy |
-| **Payoffs** | Odds that dig effects hit, plus tension analysis when two effects want different cards |
+| **Payoffs** | Odds that dig effects hit, plus tension analysis when two effects want different cards. Effects can name specific types — pick any mix of the permanent types and creature types your list actually contains ("a Dwarf or Equipment card") and a card counts if it is any one of them |
 | **Goldfish** | Deals hundreds of opening hands, scores each on the play and on the draw, and opens any one of them for card-by-card draws with live odds |
 | **Consistency** | Your own definition of a good opening hand — how often you get it, what mulliganing for it costs you in cards, and where digging stops being worth it |
 | **Compare** | Every sideboard plan beside the maindeck — which one quietly breaks your mana, and what each does to your curve, colors and payoff odds |
@@ -89,7 +89,7 @@ Exact figures and sampled ones are kept apart. Curve, sources, land count and pa
 
 Set codes, `x` notation and comments (`//`) are all handled.
 
-**Names are matched the way people actually type them.** Accents are optional — `Dain's Company` finds `Dáin's Company` — and so are curly apostrophes. Arena decklists work too: `Giantcraft Helm` resolves to `Doc Ock's Tentacles`, because Arena prints many Universes Beyond cards under different names and the tool reads the printed name as well as the oracle one. Anything it can only *guess* at is offered as a suggestion with a button rather than quietly put in your deck, and anything it can't resolve at all gets a dialog telling you what that costs — an unresolved card fills a slot in your library and satisfies nothing, so every figure on the page is understated until you fix it.
+**Names are matched the way people actually type them.** Accents are optional — `Dain's Company` finds `Dáin's Company` — and so are curly apostrophes. Pluralised basics are too: `5 Islands` and `10 Mountains` resolve exactly, because there is nothing else they could mean. Arena decklists work too: `Giantcraft Helm` resolves to `Doc Ock's Tentacles`, because Arena prints many Universes Beyond cards under different names and the tool reads the printed name as well as the oracle one. Anything it can only *guess* at is offered as a suggestion with a button rather than quietly put in your deck, and anything it can't resolve at all gets a dialog telling you what that costs — an unresolved card fills a slot in your library and satisfies nothing, so every figure on the page is understated until you fix it.
 
 Put a `Sideboard` line before your sideboard and it's kept out of the deck — which is what makes the Compare tab work, and stops a pasted 75-card export being analysed as a 75-card deck:
 
@@ -110,6 +110,32 @@ For cards Scryfall can't resolve (custom cards, or when offline):
 4 Mystery Land [land:RG]        # mark as a dual land
 2 Weird Utility Land [land:C]   # land producing no colored mana
 ```
+
+### Adventures and split cards
+
+An Adventure or split card is two spells sharing a slot, and plenty of decks only
+ever cast one of them. Say which and the other half leaves every calculation —
+its coloured pips stop asking for sources and its mana value stops moving the
+curve:
+
+```
+2 Callous Sell-Sword [face:adventure]   # only ever cast as Burn Together, a red spell
+4 Brazen Borrower [face:main]           # only ever cast as the creature
+```
+
+The **Two-faced cards** panel in the left column does the same thing with a
+click, and appears only when your deck actually holds one. `[face:main]` and
+`[face:adventure]` are the readable spellings; `front`/`back`, `1`/`2` and
+`adv`/`alt` work too.
+
+Say nothing and both halves count — each measured *separately*, at its own mana
+value, rather than added together. That distinction matters: read as one spell,
+Callous Sell-Sword // Burn Together costs `{1}{B} // {R}` and appears to demand
+black *and* red at once, which told an Izzet deck it was thirteen black sources
+short of a card it plays purely as red removal.
+
+A transform card's back face is never cast, so it is ignored. A modal
+double-faced card whose back is a land is handled by the land count instead.
 
 ## Saving your work
 

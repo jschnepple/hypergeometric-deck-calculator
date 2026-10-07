@@ -354,6 +354,157 @@ group('the resolution dialog');
   click($('rmodalOk'));
 }
 
+/* ------------------------------------------------------------------ */
+group('the two-faced card panel');
+{
+  /* Seeded through eval because the page's top-level `let DB` is a lexical
+     global, not a property of window — the same reason this file cannot simply
+     reach in and call the render functions by name. */
+  const SELLSWORD = {
+    object:'card', oracle_id:'css', name:'Callous Sell-Sword // Burn Together',
+    layout:'adventure', mana_cost:'{1}{B} // {R}', cmc:2,
+    type_line:'Creature — Human Soldier // Sorcery — Adventure',
+    card_faces:[
+      { name:'Callous Sell-Sword', mana_cost:'{1}{B}', type_line:'Creature — Human Soldier' },
+      { name:'Burn Together', mana_cost:'{R}', type_line:'Sorcery — Adventure' }
+    ]
+  };
+
+  chk('the panel is hidden when no card has two faces',
+      $('faceCard').classList.contains('hide'));
+  chk('…and actually computes to display:none',
+      w.getComputedStyle($('faceCard')).display === 'none');
+
+  w.eval('indexCard(DB, ' + JSON.stringify(SELLSWORD) + '); PD_VAL=null;');
+  $('list').value = LIST.replace('4 Trick {1}{R}', '4 Callous Sell-Sword');
+  fire($('list'), 'input');
+
+  chk('it appears once the deck holds one', !$('faceCard').classList.contains('hide'));
+  chk('it names the card', /Callous Sell-Sword/.test($('faceList').innerHTML));
+  chk('it offers the Adventure by ITS name, not the card’s',
+      /Burn Together/.test($('faceList').innerHTML));
+  chk('both is the default', $('faceList').querySelector('button.on').dataset.fmode === 'both');
+  clean('face panel', $('faceList').innerHTML);
+
+  /* Running both halves really does need black — that is not the bug, and the
+     fix must not make the tool blind to a card the deck genuinely casts. */
+  chk('running both halves asks for black',
+      /Black/.test(text($('conflicts'))), text($('conflicts')).slice(0, 200));
+
+  const adv = [...$('faceList').querySelectorAll('button')]
+    .find(b => b.dataset.fmode === 'adventure');
+  chk('the Adventure is offered as a choice', !!adv);
+  click(adv);
+
+  chk('the choice is written into the decklist itself',
+      /Callous Sell-Sword \[face:adventure\]/.test($('list').value),
+      $('list').value.split('\n').find(l => /Callous/.test(l)));
+  chk('…and the button is now the selected one',
+      $('faceList').querySelector('button.on').dataset.fmode === 'adventure');
+  chk('the black requirement is gone', !/Black/.test(text($('conflicts'))),
+      text($('conflicts')).slice(0, 200));
+  chk('and red is still being asked for', /Red/.test(text($('conflicts'))));
+
+  /* Back to both, and the tag comes out rather than accumulating. */
+  click([...$('faceList').querySelectorAll('button')].find(b => b.dataset.fmode === 'both'));
+  chk('choosing both removes the tag', !/\[face:/.test($('list').value));
+  chk('black is asked for again', /Black/.test(text($('conflicts'))));
+
+  $('list').value = LIST;
+  fire($('list'), 'input');
+  chk('the panel hides again when the card leaves the deck',
+      $('faceCard').classList.contains('hide'));
+}
+
+/* ------------------------------------------------------------------ */
+group('a dig payoff that names specific types');
+{
+  const mk = (id, name, type_line, mana_cost, cmc) =>
+    ({ object:'card', oracle_id:id, name, layout:'normal', mana_cost, cmc, type_line, keywords:[] });
+  w.eval('[' + [
+    mk('dc', "Dáin's Company", 'Creature — Dwarf Warrior', '{R}{W}', 2),
+    mk('id', 'Iron Dwarf', 'Creature — Dwarf Soldier', '{1}{R}', 2),
+    mk('wa', 'War Axe', 'Artifact — Equipment', '{1}', 1),
+  ].map(c => JSON.stringify(c)).join(',') + '].forEach(c=>indexCard(DB,c)); PD_VAL=null;');
+  /* Typed without the accent, the way everybody types it. */
+  $('list').value = ["4 Dain's Company", '20 Iron Dwarf', '8 War Axe', '6 Bolt {R}', '22 Mountain [land:R]'].join('\n');
+  fire($('list'), 'input');
+  click([...$('tabs').children].find(b => b.dataset.t === 'payoffs'));
+
+  const before = $('payoffList').querySelectorAll('[data-pid]').length;
+  click($('addDC'));
+  const cardEl = () => [...$('payoffList').querySelectorAll('[data-pid]')].pop();
+  const chipEl = key => [...cardEl().querySelectorAll('[data-any]')].find(b => b.dataset.any === key);
+  const pressed = () => [...cardEl().querySelectorAll('[data-any][aria-pressed="true"]')].map(b => b.dataset.any).sort();
+  const stat = label => { const m = text(cardEl()).match(new RegExp(label + '\\s*([\\d.]+)%?')); return m ? +m[1] : NaN; };
+  const pc = x => +(x * 100).toFixed(1);
+
+  chk('the preset adds a payoff', $('payoffList').querySelectorAll('[data-pid]').length === before + 1);
+  chk('it arrives with Dwarf and Equipment chosen',
+      JSON.stringify(pressed()) === JSON.stringify(['creature:Dwarf', 'sub:Equipment']), pressed().join());
+  chk('the chips come from the deck', !!chipEl('type:Artifact') && !!chipEl('creature:Soldier') && !!chipEl('type:Land'));
+  chk('a chip carries its count', /Dwarf\s*24/.test(text(chipEl('creature:Dwarf'))), text(chipEl('creature:Dwarf')));
+  /* 24 Dwarves + 8 Equipment, less the Company doing the looking: 31 of 59. */
+  chk('hits in deck', stat('Hits in deck') === 31, text(cardEl()).slice(0, 400));
+  const p31 = 1 - (28 * 27 * 26 * 25) / (59 * 58 * 57 * 56);
+  chk('the chance is the hand-computed one', Math.abs(stat('At least 1') - pc(p31)) < 0.11, stat('At least 1') + ' vs ' + pc(p31));
+  clean('type chips', cardEl().innerHTML);
+
+  /* Click the count inside the chip, not the chip: the <i> is the likelier target. */
+  click(chipEl('sub:Equipment').querySelector('i'));
+  chk('clicking a chip turns it off', JSON.stringify(pressed()) === JSON.stringify(['creature:Dwarf']), pressed().join());
+  chk('and the count follows', stat('Hits in deck') === 23, text(cardEl()).slice(0, 400));
+  chk('focus stays on the chip across the re-render', d.activeElement === chipEl('sub:Equipment'));
+  click(chipEl('sub:Equipment'));
+  chk('clicking again turns it back on', stat('Hits in deck') === 31);
+
+  /* Shared-reference check: a second Company must own its own selection. */
+  click($('addDC'));
+  click(chipEl('creature:Dwarf'));
+  const cards2 = [...$('payoffList').querySelectorAll('[data-pid]')];
+  const first = cards2[cards2.length - 2];
+  chk('two payoffs do not share one selection',
+      first.querySelectorAll('[data-any][aria-pressed="true"]').length === 2);
+  click(cardEl().querySelector('[data-del]'));
+
+  click(cardEl().querySelector('[data-anyclear]'));
+  chk('clear removes the restriction', pressed().length === 0 && stat('Hits in deck') === 59, text(cardEl()).slice(0, 400));
+  chk('and says so', /no type restriction/.test(text(cardEl())));
+
+  click(chipEl('creature:Dwarf'));
+  click($('saveSlot'));
+  w.eval('applyState(STATE.builds[STATE.active]||snapshotState())');
+  chk('the selection survives a save and restore',
+      JSON.stringify(pressed()) === JSON.stringify(['creature:Dwarf']), pressed().join());
+
+  click(cardEl().querySelector('[data-del]'));
+  chk('removed again', $('payoffList').querySelectorAll('[data-pid]').length === before);
+  $('list').value = LIST;
+  fire($('list'), 'input');
+  click($('saveSlot'));
+}
+
+/* ------------------------------------------------------------------ */
+group('an unresolved card is in neither column');
+{
+  $('list').value = LIST.replace('4 Trick {1}{R}', '4 Totally Unknown Card');
+  fire($('list'), 'input');
+  const g = text($('glance'));
+  chk('the glance reports them separately', /Unresolved/.test(g), g.slice(0, 160));
+  /* The bug's fingerprint: four phantom cards counted as 0-drop spells. LIST is
+     nine 4-ofs, so the spell count must fall from 36 to 32 rather than stay. */
+  chk('…and they are not counted as spells', /Spells\s*32(?!\d)/.test(g), g.slice(0, 160));
+  chk('…and the unresolved four are named as such', /Unresolved\s*4(?!\d)/.test(g), g.slice(0, 160));
+  chk('the conflict report leads with the caveat',
+      /could not be identified/i.test(text($('conflicts'))),
+      text($('conflicts')).slice(0, 200));
+  clean('glance with unresolved', $('glance').innerHTML);
+
+  $('list').value = LIST;
+  fire($('list'), 'input');
+  chk('and the row goes away when everything resolves', !/Unresolved/.test(text($('glance'))));
+}
+
 group('nothing threw along the way');
 chk('no javascript errors during the whole run', jsErrors.length === 0, jsErrors.join(' | '));
 

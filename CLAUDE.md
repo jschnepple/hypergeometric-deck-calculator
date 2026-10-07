@@ -158,6 +158,59 @@ Run the suite after any edit to `index.html`.
   stops the remaining passes, clears `missing`, and says the run could not
   finish. `missing` is assembled at the END from what is still unresolved, not
   pushed to as we go.
+- **An unresolved card belongs to NEITHER partition.** `parseList` gives it
+  `land:false, cmc:0` — the only honest thing it can do — so partitioning on
+  `c.land` alone sweeps every one of them into `spells`, where they are counted,
+  curved at mana value 0 and averaged. That is what reported a 20-land deck as
+  twelve lands with an average mana value of 1.33, under a panel stating they were
+  excluded from every calculation. `analyseCards` was the last caller not applying
+  the skip-unknowns rule below. Consequence to keep in mind: **`landCount +
+  spellCount` is legitimately less than `total`**, and the Glance row and the
+  conflict report's leading caveat exist so that gap is stated rather than
+  absorbed into one of the columns.
+- **A pluralised basic is not a guess, and must not be resolved like one.**
+  `5 Islands` fails the collection endpoint AND `!"islands"`; only `named?fuzzy=`
+  finds it, and fuzzy is deliberately a suggestion that never applies itself. So
+  `basicAlias` is a fourth tier sitting *with the exact matches* — plurals and
+  `Snow-Covered` forms of the six basics, nothing else. It runs last, and
+  `dbLookup` checks the folded index with `in` rather than truthiness so a
+  collision's stored `null` reads as REFUSED and does not fall through to it. A
+  genuine misspelling ("spyrebluff canal") still goes to the suggestion dialog,
+  which is where it belongs. `lookup()` also sends the canonical name to Scryfall:
+  folding "islands" onto an Island record only helps once one is in the DB.
+- **A two-faced card's colour requirements are measured ONE FACE AT A TIME.**
+  Scryfall's top-level `mana_cost` for an Adventure or split card is the two costs
+  CONCATENATED — `"{1}{B} // {R}"` — and `parseCost` reads every symbol in it, so
+  the card arrives as one phantom spell needing both colours at once. That told an
+  Izzet deck it was thirteen black sources short of a card it casts purely as red
+  removal. `faceViews` yields one view per intended face and exactly one for an
+  ordinary card, so nothing else changed shape. This is not a preference — you
+  cast one side or the other, never both at once — and it applies with or without
+  an explicit choice.
+- **`[face:main]` / `[face:adventure]` narrows a card to one half**, and the
+  unchosen half leaves *everything*: pips, mana value, cost, type line.
+  `applyFace` REPLACES the top-level fields rather than adding beside them, which
+  is why the curve, the goldfish, the goal clauses and the payoff matcher needed
+  no changes at all. Scope is deliberately narrow — `adventure`, `split`, and a
+  modal DFC whose back is **not** a land. A transform back face is never cast; an
+  MDFC land is already modelled by `mdfcLand` and the Karsten MDFC term, and
+  letting it also be a choice of two spells puts two parts of the tool back into
+  disagreement about one card.
+- **The face picker writes into the DECKLIST TEXT, not into build state.** Same
+  call `renameInList` makes, for the same reason: the textarea is what gets
+  exported, imported, pasted into another build and re-read by the sideboard and
+  variant paths, so a choice recorded anywhere else quietly disappears down one of
+  them. It also meant no schema bump.
+- **Source counts are FLOATS.** A conditional dual contributes a fraction — that
+  is the whole point of the Verge weighting — and the conflict report was
+  interpolating it raw: "3.802638647696905 sources … 10.197361352303094 short".
+  `num1` rounds for display only; comparisons stay exact, and a shortfall under a
+  tenth of a source is a rounding artefact rather than a finding.
+- **`displayName` is the name to PRINT; `name` is the name the user typed.** The
+  parser keeps the typed one because `renameInList` has to find the line again.
+  Before this the conflict report quoted the decklist back — "need 14 for wild ride
+  on curve". For a two-faced card the FACE name beats both, which is the point:
+  "need 13 for Burn Together" says which half is asking.
 - **`matches()` is the tool's NARROWEST reader of a card.** It sees a type line
   and a mana value; `analyseCards` sees more. Every caller that assumed otherwise
   has been a bug. Two rules follow, both now enforced and tested:
@@ -172,6 +225,13 @@ Run the suite after any edit to `index.html`.
 
 ## Known limitations (documented in the Method tab)
 
+- With both halves of a two-faced card in play, the curve, the goldfish and the
+  goal clauses read the FRONT face — one card cannot occupy two columns of a
+  curve. Only the colour requirements see both faces.
+- A misspelled land is still silently a non-land until the suggestion is accepted.
+  The Unresolved row and the conflict report's leading caveat make that visible;
+  they do not make it hard to ignore, and the dialog is dismissible.
+- `[face:...]` on a card with no second castable face is accepted and does nothing.
 - Fetchlands are resolved against the deck's own land base — a fetch counts for a
   colour only if the deck runs a retrievable land producing it. Scryfall gives
   fetches no `produced_mana` at all, so without this they count as nothing.
@@ -462,7 +522,65 @@ chain in closed form, and plots strictness against the cards it costs.
   `tests/goalsview.test.js` seeds stand-ins. Rename either and that file needs
   the same rename.
 
-## Current state — 2026-08-27 (session 6)
+## Current state — 2026-10-07 (session 8)
+
+**Done.** Dig payoffs can name specific types: a payoff's `anyOf` is a list of
+keys (`type:Artifact`, `sub:Equipment`, `creature:Dwarf`) ORed together and
+ANDed with the three dropdowns, picked from chips that `payoffTypeOptions`
+builds out of the deck's own type lines. New `+ Dáin's Company` preset. Rules
+that came out of it, all in `memory/2026-10-07-type-selection.md`:
+
+- **A creature-type key matches the SUBTYPE, not the Creature card type** —
+  Dáin's Company says "a Dwarf or Equipment card". Verified on Scryfall.
+- **`changeling` is a field on the card record**, read from `keywords`. Records
+  cached before session 8 lack it until the next lookup.
+- **Anything a preset holds by reference must be cloned in `addPayoff`.**
+- `typeChipsHTML` and `payoffTypeOptions` live in `DIG PAYOFFS`, not `RENDER`,
+  and reach into COMPARE for `esc`; `tests/payoff.test.js` seeds a stand-in.
+
+`node tests/run-all.js` is green locally; `dom.test.js` was run against a staged
+copy with jsdom (156) and the Payoffs tab was rendered in headless Chromium at
+1280px and 420px. Sessions 7 and 8 are both still uncommitted.
+
+**Open:** the goal builder has no UI for `anyOf`; the "exactly N" row of the
+distribution table is misleading when N is the take limit (see the memory).
+
+## Previous state — 2026-09-13 (session 7)
+
+**Done.** 1302 tests green (1441 with jsdom). Session 7 was the second real
+decklist, and like the first it found bugs nothing synthetic would have: a
+20-land deck reported as twelve lands, and an Izzet deck told it was thirteen
+BLACK sources short. Both root causes were a layer below the panel complaining —
+unresolved cards silently classified as 0-mana spells, and an Adventure's two
+costs read as one. Full write-up in `memory/2026-09-13-lands-and-faces.md`.
+New in the UI: a **Two-faced cards** panel in the left column (hidden unless the
+deck holds one) and an **Unresolved** row in Deck at a Glance. New test file
+`tests/faces.test.js`; `dom.test.js` now drives the face picker and asserts the
+black requirement leaves the rendered conflict report.
+
+Two process notes for next time. **jsdom will not install on Jeff's machine**
+(the local VM has no reachable npm registry), so the DOM layer skips there and
+has to be run against a staged copy elsewhere — do that before calling a session
+done, because it is the only layer that catches a bad element id or a handler
+wired to a name that does not exist. And **Scryfall returns 400 to a default
+HTTP-library User-Agent**, so any node-side harness that hits the API needs a
+custom one; the browser is unaffected, which is why nothing in the app noticed.
+
+**Next up:** nothing is queued. The list below is unchanged from session 6 except
+for one addition it earned:
+
+- **The dismissible-suggestion gap.** A misspelled land is still silently a
+  non-land until you accept the suggestion, and the dialog can be dismissed. The
+  new Unresolved row and leading caveat make it visible; they do not make it hard
+  to ignore. Worth deciding whether an unresolved LAND-shaped line deserves
+  stronger treatment than an unresolved spell.
+- **Mobile layout.** Still never looked at, and the left column just gained
+  another panel.
+- **Sequenced land drops.** Still the largest modelling gap.
+- **Goals in the Compare tab.**
+- Mana rocks and dorks uncounted; X spells reading as mana value 0.
+
+## Previous state — 2026-08-27 (session 6)
 
 **Done.** 1209 tests green (1324 with jsdom installed). Session 2 loaded the first
 real decklist and fixed seven manabase bugs; session 3 was the glassmorphism pass
